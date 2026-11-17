@@ -21,12 +21,13 @@ echo "· Buka WebUI modul untuk memilih aplikasi."
 echo "· Butuh reboot sekali agar service.sh jalan."
 echo ""
 
-mkdir -p "$CFG/state" 2>/dev/null
+mkdir -p "$CFG/state" "$CFG/cache/icons" 2>/dev/null
 [ -s "$CFG/config.conf" ] || cp -f "$MODDIR/defaults.conf" "$CFG/config.conf" 2>/dev/null
 
 chmod 755 "$MODDIR" 2>/dev/null
 chmod 755 "$MODDIR"/*.sh 2>/dev/null
 chmod 755 "$MODDIR"/bin/tbg.sh 2>/dev/null
+chmod 644 "$MODDIR"/bin/tbgui.dex 2>/dev/null
 chmod 644 "$MODDIR/module.prop" "$MODDIR/defaults.conf" 2>/dev/null
 chmod 644 "$MODDIR"/webroot/* 2>/dev/null
 

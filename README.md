@@ -54,11 +54,36 @@ sh /data/adb/modules/titanbg/bin/tbg.sh check com.ss.android.ugc.trill
 
 ## WebUI
 
-Buka dari aplikasi manajer (KernelSU → Modul → TitanBG → Buka WebUI). Fitur:
-pilih aplikasi (third-party / system), mode hard/soft, toggle per lapis, daftar ban dengan
-status hidup (state · bucket · appops · jumlah proses), checker, dan log daemon.
+Buka dari aplikasi manajer (KernelSU → Modul → TitanBG → Buka WebUI). Tampilan baru:
 
-Nama paket dipakai karena WebUI modul hanya punya shell, tidak punya akses ke label/ikon aplikasi.
+- banner **SANZ-TITAN**, empat tab bawah (Dasbor · Aplikasi · Ban · Cek), animasi masuk,
+  tombol Terapkan mengapung, dan konfirmasi bottom-sheet untuk aksi berbahaya
+- daftar aplikasi memakai **ikon dan nama aplikasi asli**, bukan cuma nama paket
+- daftar aplikasi maupun daftar ban dibatasi ±10 baris lalu di-scroll, tidak memanjang ke bawah
+- pencarian nama/paket, filter Semua · Terpasang · System · Diban, muat bertahap 60 baris
+- checker membaca keadaan sistem dan menampilkan verdict + meter (appops/bucket/proses/state)
+- log daemon bisa dibuka langsung dari tab Cek
+
+### Ikon dan nama aplikasi
+
+WebUI modul cuma punya shell, jadi label dan ikon diambil lewat helper kecil
+`bin/tbgui.dex` yang dijalankan sekali pakai:
+
+```sh
+sh /data/adb/modules/titanbg/bin/tbg.sh catalog        # pkg<TAB>label<TAB>s|u
+sh /data/adb/modules/titanbg/bin/tbg.sh icons <pkg..>  # base64 webp 96px
+```
+
+Helper memanggil `app_process` (bukan daemon, bukan service, bukan Java yang menetap) lalu
+langsung keluar. Hasilnya di-cache di `/data/adb/titanbg/cache/` supaya pembukaan berikutnya
+tidak perlu memanggil helper lagi — cache otomatis dibuang kalau jumlah paket berubah, atau
+manual lewat tombol **muat ulang label** / `recache`.
+
+Kalau helper gagal di perangkat tertentu (ROM aneh, `app_process` diblokir), WebUI tetap jalan:
+label jatuh ke nama paket yang dirapikan dan ikon jadi inisial berwarna. Tidak ada fungsi
+yang mati.
+
+Sumber helper ada di `src/com/sanz/tbgui/Main.java`, build ulang dengan `sh build-helper.sh`.
 
 ## Checker
 

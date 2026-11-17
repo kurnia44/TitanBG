@@ -21,6 +21,9 @@ LOG="$CFG/titanbg.log"
 STDIR="$CFG/state"
 PIDF="$CFG/daemon.pid"
 DEF="$MODROOT/defaults.conf"
+CACHE="$CFG/cache"
+ICONS="$CACHE/icons"
+HELPER="$MODROOT/bin/tbgui.dex"
 
 mkdir -p "$CFG" "$STDIR" 2>/dev/null
 if [ ! -s "$CONF" ]; then
@@ -46,6 +49,27 @@ AM=$(command -v am 2>/dev/null); [ -x "$AM" ] || AM=/system/bin/am
 CM=$(command -v cmd 2>/dev/null); [ -x "$CM" ] || CM=/system/bin/cmd
 DS=$(command -v dumpsys 2>/dev/null); [ -x "$DS" ] || DS=/system/bin/dumpsys
 PM=$(command -v pm 2>/dev/null); [ -x "$PM" ] || PM=/system/bin/pm
+
+# ---- helper UI (dex, dipanggil app_process; bukan daemon) ----
+helper_call() {
+  [ -f "$HELPER" ] || return 9
+  _ap=""
+  for _c in app_process64 app_process; do
+    [ -x "/system/bin/$_c" ] && { _ap="/system/bin/$_c"; break; }
+  done
+  [ -n "$_ap" ] || return 9
+  mkdir -p "$CACHE" 2>/dev/null
+  _err="$CACHE/helper.err"
+  if command -v timeout >/dev/null 2>&1; then
+    CLASSPATH="$HELPER" ANDROID_ROOT=${ANDROID_ROOT:-/system} ANDROID_DATA=${ANDROID_DATA:-/data} \
+      timeout 45 "$_ap" -Djava.class.path="$HELPER" \
+      /system/bin --nice-name=tbgui com.sanz.tbgui.Main "$@" 2>"$_err"
+  else
+    CLASSPATH="$HELPER" ANDROID_ROOT=${ANDROID_ROOT:-/system} ANDROID_DATA=${ANDROID_DATA:-/data} \
+      "$_ap" -Djava.class.path="$HELPER" \
+      /system/bin --nice-name=tbgui com.sanz.tbgui.Main "$@" 2>"$_err"
+  fi
+}
 
 now_s() {
   _n=$(date +%s 2>/dev/null)
@@ -159,6 +183,93 @@ cmd_installed() {
     "$PM" list packages $_flt 2>/dev/null
     [ $? -ne 0 ] && "$CM" package list packages $_flt 2>/dev/null
   } | sed 's/^package://' | sed '/^$/d' | sort
+}
+
+# ---------------- label & ikon (untuk WebUI) -----------------
+
+pkg_signature() {
+  _s=$("$PM" list packages 2>/dev/null | wc -l | tr -d ' ')
+  case "$_s" in ''|*[!0-9]*) _s=0 ;; esac
+  printf '%s' "$_s"
+}
+
+# catalog = "pkg<TAB>label<TAB>s|u"  (baris pertama: #jumlah_paket, penanda cache)
+cmd_catalog() {
+  mkdir -p "$CACHE" 2>/dev/null
+  _c="$CACHE/catalog.txt"
+  _sig=$(pkg_signature)
+  if [ -s "$_c" ]; then
+    _old=$(sed -n '1{s/^#//;p;}' "$_c" 2>/dev/null)
+    if [ "$_old" = "$_sig" ]; then cat "$_c"; return 0; fi
+  fi
+  _out=$(helper_call catalog)
+  if [ -n "$_out" ]; then
+    {
+      printf '#%s\n' "$_sig"
+      printf '%s\n' "$_out" | awk -F'\t' 'NF>=3 && $1 ~ /^[A-Za-z0-9._]+$/'
+    } > "$_c" 2>/dev/null
+    cat "$_c" 2>/dev/null || { printf '#%s\n' "$_sig"; printf '%s\n' "$_out"; }
+    return 0
+  fi
+  # fallback: tanpa label (helper tidak jalan) -> nama paket dipakai sebagai label
+  _third=$("$PM" list packages -3 2>/dev/null | sed 's/^package://')
+  {
+    printf '#%s\n' "$_sig"
+    "$PM" list packages 2>/dev/null | sed 's/^package://' | sort | while IFS= read -r _p; do
+      [ -z "$_p" ] && continue
+      case "$(printf '%s\n' "$_third" | grep -x -- "$_p" 2>/dev/null)" in
+        '') printf '%s\t%s\ts\n' "$_p" "$_p" ;;
+        *)  printf '%s\t%s\tu\n' "$_p" "$_p" ;;
+      esac
+    done
+  } > "$_c" 2>/dev/null
+  cat "$_c" 2>/dev/null
+  return 0
+}
+
+# icons <pkg..> = "i.<pkg>=<base64 webp>"  (cache per paket, hemat)
+cmd_icons() {
+  mkdir -p "$ICONS" 2>/dev/null
+  [ $# -eq 0 ] && return 0
+  _want=" "
+  for _p in "$@"; do
+    case "$_p" in ''|*[!A-Za-z0-9._]*) continue ;; esac
+    if [ -s "$ICONS/$_p" ]; then
+      printf 'i.%s=%s\n' "$_p" "$(cat "$ICONS/$_p" 2>/dev/null)"
+    else
+      _want="$_want$_p "
+    fi
+  done
+  [ "$_want" = " " ] && return 0
+  _got=$(helper_call icons $_want)
+  [ -z "$_got" ] && return 0
+  printf '%s\n' "$_got" | WANT="$_want" ICONDIR="$ICONS" awk -F'\t' '
+    BEGIN { n = split(ENVIRON["WANT"], w, " "); for (i = 1; i <= n; i++) want[w[i]] = 1 }
+    NF >= 2 && $1 ~ /^[A-Za-z0-9._]+$/ && $2 != "" {
+      f = ENVIRON["ICONDIR"] "/" $1
+      printf "%s", $2 > f
+      close(f)
+      if ($1 in want) printf "i.%s=%s\n", $1, $2
+    }'
+  return 0
+}
+
+cmd_probe() {
+  _o=$(helper_call probe 2>/dev/null)
+  if [ "$_o" = "probe=ok" ]; then
+    echo "helper=ok"
+    echo "dex=$HELPER"
+  else
+    echo "helper=fail"
+    [ -s "$CACHE/helper.err" ] && { echo "--- err ---"; head -n 5 "$CACHE/helper.err"; }
+  fi
+  return 0
+}
+
+cmd_recache() {
+  rm -rf "$CACHE" 2>/dev/null
+  mkdir -p "$CACHE" 2>/dev/null
+  echo "cache=cleared"
 }
 
 cmd_add() {
@@ -455,6 +566,10 @@ TitanBG CLI
   dump                       status runtime + config (key=value)
   status                     ringkasan manusia
   installed [all]            daftar paket (default: third-party)
+  catalog                    paket + label + penanda system (untuk WebUI)
+  icons <pkg..>              ikon app base64 webp (untuk WebUI)
+  recache                    hapus cache label & ikon
+  probe                      cek helper label/ikon hidup atau tidak
   add <pkg> | del <pkg>      masuk/keluar daftar ban
   toggle <pkg>               flip
   apply                      terapkan aturan sekarang
@@ -472,6 +587,10 @@ case "$1" in
   dump)      cmd_dump ;;
   status)    cmd_status ;;
   installed) cmd_installed "$2" ;;
+  catalog)   cmd_catalog ;;
+  icons)     shift; cmd_icons "$@" ;;
+  recache)   cmd_recache ;;
+  probe)     cmd_probe ;;
   add)       cmd_add "$2" ;;
   del)       cmd_del "$2" ;;
   toggle)    cmd_toggle "$2" ;;
