@@ -1,0 +1,6 @@
+*.zip
+state
+*.log
+daemon.pid
+config.conf
+_feed.json

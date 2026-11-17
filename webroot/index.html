@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TitanBG</title>
+<style>
+:root{
+  --bg:#0a0c0f; --card:#12161b; --card2:#171d24; --line:#232b34;
+  --tx:#e8eef4; --dim:#8a97a6; --grn:#33d17a; --amb:#f5b942;
+  --red:#f0616d; --acc:#4c8dff; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:15px}
+body{padding-bottom:92px}
+header{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;
+  padding:14px 16px;background:rgba(10,12,15,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line)
+}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(140deg,#33d17a,#4c8dff);
+  display:grid;place-items:center;font-weight:800;font-size:15px;color:#07110c;flex:0 0 auto}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
+header .sub{font-size:11px;color:var(--dim);margin-top:1px}
+.spacer{flex:1}
+.pill{font-size:11px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:var(--card2);color:var(--dim);white-space:nowrap;font-family:var(--mono)}
+.pill.on{color:#0a1a12;background:var(--grn);border-color:var(--grn);font-weight:700}
+.pill.off{color:#2a0f13;background:var(--red);border-color:var(--red);font-weight:700}
+main{padding:14px 14px 0;max-width:720px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:14px;margin-bottom:12px}
+.card h2{font-size:12px;margin:0 0 10px;color:var(--dim);text-transform:uppercase;
+  letter-spacing:.9px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .count{margin-left:auto;font-family:var(--mono);color:var(--dim);letter-spacing:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:9px 10px;min-width:0}
+.kv .k{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px}
+.kv .v{font-family:var(--mono);font-size:12.5px;margin-top:3px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.seg button{all:unset;text-align:center;padding:11px 8px;border-radius:12px;
+  background:var(--card2);border:1px solid var(--line);font-size:13px;font-weight:600;color:var(--dim)}
+.seg button small{display:block;font-weight:400;font-size:10px;color:var(--dim);margin-top:3px}
+.seg button.sel{background:rgba(51,209,122,.14);border-color:var(--grn);color:var(--grn)}
+.row{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .t{flex:1;min-width:0}
+.row .t .n{font-size:13px;font-weight:600}
+.row .t .p{font-family:var(--mono);font-size:11px;color:var(--dim);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.sw{width:46px;height:27px;border-radius:999px;background:#26303a;position:relative;
+  flex:0 0 auto;transition:background .15s;border:1px solid var(--line)}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;border-radius:50%;
+  background:#7d8a99;transition:transform .15s,background .15s}
+.sw.on{background:rgba(51,209,122,.25);border-color:var(--grn)}
+.sw.on::after{transform:translateX(19px);background:var(--grn)}
+.search{display:flex;gap:8px;margin-bottom:10px}
+input[type=text]{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:11px;
+  padding:11px 12px;color:var(--tx);font-size:13px;font-family:var(--mono);outline:none;min-width:0}
+input[type=text]:focus{border-color:var(--acc)}
+.mini{all:unset;padding:0 12px;border-radius:11px;background:var(--card2);border:1px solid var(--line);
+  font-size:11px;color:var(--dim);display:grid;place-items:center;white-space:nowrap}
+.mini.on{color:var(--grn);border-color:var(--grn)}
+.pick{max-height:46vh;overflow:auto;-webkit-overflow-scrolling:touch}
+.p{display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:10px;border-bottom:1px solid var(--line)}
+.p:last-child{border-bottom:0}
+.p .pkg{font-family:var(--mono);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p .dot{width:9px;height:9px;border-radius:50%;background:#39434e;flex:0 0 auto}
+.p.on{background:rgba(240,97,109,.07)}
+.p.on .dot{background:var(--red);box-shadow:0 0 8px rgba(240,97,109,.6)}
+.p.on .pkg{color:#ffd9dc}
+.tag{font-size:10px;font-family:var(--mono);padding:3px 7px;border-radius:6px;
+  background:var(--card2);border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.tag.g{color:var(--grn);border-color:rgba(51,209,122,.45)}
+.tag.a{color:var(--amb);border-color:rgba(245,185,66,.45)}
+.tag.r{color:var(--red);border-color:rgba(240,97,109,.45)}
+pre{margin:0;font-family:var(--mono);font-size:11px;line-height:1.55;white-space:pre-wrap;
+  word-break:break-word;color:#b9c6d3;max-height:230px;overflow:auto;
+  background:#0d1116;border:1px solid var(--line);border-radius:11px;padding:10px}
+.bar{position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;gap:10px;
+  padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+  background:rgba(10,12,15,.95);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.bar button{all:unset;flex:1;text-align:center;padding:14px 10px;border-radius:13px;
+  font-size:14px;font-weight:700;border:1px solid var(--line);background:var(--card2);color:var(--tx)}
+.bar button.main{background:linear-gradient(140deg,#33d17a,#28b469);color:#06170e;border-color:transparent}
+.bar button:active{opacity:.8}
+.warn{background:rgba(245,185,66,.1);border:1px solid rgba(245,185,66,.4);color:#ffd88a;
+  padding:11px 12px;border-radius:12px;font-size:12.5px;margin-bottom:12px;line-height:1.5}
+.empty{color:var(--dim);font-size:12.5px;padding:14px 4px;text-align:center;line-height:1.6}
+.hint{color:var(--dim);font-size:11.5px;line-height:1.55;margin:8px 0 0}
+.toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,14px);z-index:60;
+  background:#1c242d;border:1px solid var(--line);color:var(--tx);padding:11px 16px;border-radius:12px;
+  font-size:12.5px;font-family:var(--mono);opacity:0;transition:.18s;pointer-events:none;max-width:86vw}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.badge{font-size:11px;font-family:var(--mono);padding:4px 9px;border-radius:7px;
+  background:var(--card2);border:1px solid var(--line);color:var(--dim)}
+.badge.OK,.badge.BANNED{color:var(--grn);border-color:rgba(51,209,122,.45);background:rgba(51,209,122,.1)}
+.badge.WARN,.badge.IN_USE{color:var(--amb);border-color:rgba(245,185,66,.45);background:rgba(245,185,66,.1)}
+.badge.FAIL{color:var(--red);border-color:rgba(240,97,109,.45);background:rgba(240,97,109,.1)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">TB</div>
+  <div>
+    <h1>TitanBG</h1>
+    <div class="sub" id="ver">background killer per-app</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="pill" id="daemonPill">daemon —</div>
+</header>
+
+<main>
+
+  <div class="warn" id="noBridge" style="display:none">
+    Tidak ada jembatan root terdeteksi. Halaman ini harus dibuka dari tombol
+    <b>Buka WebUI</b> di aplikasi KernelSU / MMRL / APatch — bukan dari browser biasa.
+  </div>
+
+  <section class="card">
+    <h2>Status <span class="count" id="cnt">0 app</span></h2>
+    <div class="grid">
+      <div class="kv"><div class="k">mode</div><div class="v" id="kMode">—</div></div>
+      <div class="kv"><div class="k">foreground</div><div class="v" id="kFg">—</div></div>
+      <div class="kv"><div class="k">layar</div><div class="v" id="kScreen">—</div></div>
+      <div class="kv"><div class="k">interval / grace</div><div class="v" id="kIv">—</div></div>
+      <div class="kv"><div class="k">root</div><div class="v" id="kRoot">—</div></div>
+      <div class="kv"><div class="k">bridge</div><div class="v" id="kBridge">—</div></div>
+    </div>
+    <p class="hint">Mode <b>hard</b> = force-stop total (FCM/notif ikut mati). Mode <b>soft</b> = hanya bunuh proses background, notif push masih bisa masuk.</p>
+  </section>
+
+  <section class="card">
+    <h2>Mode penegakan</h2>
+    <div class="seg">
+      <button data-mode="hard" id="mHard">HARD<small>force-stop · total</small></button>
+      <button data-mode="soft" id="mSoft">SOFT<small>kill proses saja</small></button>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Blokir background start (appops)</div>
+        <div class="p">RUN_ANY_IN_BACKGROUND ignore</div></div>
+      <div class="sw" id="tBg"></div>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Standby bucket restricted</div>
+        <div class="p">+ keluarkan dari device-idle whitelist</div></div>
+      <div class="sw" id="tBucket"></div>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Sapu bersih saat layar mati</div>
+        <div class="p">force-stop semua app terdaftar</div></div>
+      <div class="sw" id="tScreen"></div>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Blokir notifikasi app terdaftar</div>
+        <div class="p">POST_NOTIFICATION ignore (termasuk saat dibuka)</div></div>
+      <div class="sw" id="tNotif"></div>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Blokir autostart saat boot</div>
+        <div class="p">appops BOOT_COMPLETED ignore</div></div>
+      <div class="sw" id="tBoot"></div>
+    </div>
+    <div class="row">
+      <div class="t"><div class="n">Service aktif</div>
+        <div class="p">master switch modul</div></div>
+      <div class="sw" id="tEnabled"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Pilih aplikasi <span class="count" id="pickCount"></span></h2>
+    <div class="search">
+      <input type="text" id="q" placeholder="cari nama paket…" autocomplete="off">
+      <button class="mini" id="sysBtn">system</button>
+    </div>
+    <div class="pick" id="pickList"><div class="empty">memuat daftar aplikasi…</div></div>
+    <p class="hint">Ketuk baris untuk memasukkan / mengeluarkan dari daftar ban. Nama paket
+      dipakai karena WebUI modul tidak punya akses ke label/ikon aplikasi.</p>
+  </section>
+
+  <section class="card">
+    <h2>Daftar ban <span class="count" id="banCount">0</span></h2>
+    <div id="banList"><div class="empty">belum ada aplikasi</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Checker <span class="count">bukti aturan kena</span></h2>
+    <div id="checkBox"><div class="empty">pilih app di daftar ban lalu tekan Cek</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Log daemon
+      <span class="count"><button class="mini" id="logBtn" style="padding:2px 8px">muat</button></span>
+    </h2>
+    <pre id="logBox">—</pre>
+  </section>
+
+</main>
+
+<div class="bar">
+  <button id="btnReset">Reset</button>
+  <button class="main" id="btnApply">Terapkan</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+var $ = function(s){ return document.querySelector(s); };
+var state = { rt:{}, apps:{}, st:{}, pkgs:[], system:false, q:'', check:null, bridge:'' };
+var LISTED = {};
+
+/* ---------- bridge ---------- */
+var mode = null, seq = 0;
+
+function bridge(){
+  if(window.ksu && typeof window.ksu.exec === 'function') return window.ksu;
+  if(window.apatch && typeof window.apatch.exec === 'function') return window.apatch;
+  if(window.ksud && typeof window.ksud.exec === 'function') return window.ksud;
+  return null;
+}
+
+function viaName(cmd, ms){
+  return new Promise(function(res, rej){
+    var B = bridge();
+    if(!B) return rej(new Error('nobridge'));
+    var n = '__cb' + (++seq), hit = false;
+    window[n] = function(code, out, err){
+      if(hit) return;
+      hit = true;
+      try{ delete window[n]; }catch(e){}
+      res({ errno: code || 0, out: out || '', err: err || '' });
+    };
+    var r = null;
+    try { r = B.exec(cmd, n); } catch(e){ return rej(new Error('execfail')); }
+    if(r && typeof r.then === 'function'){
+      r.then(function(x){
+        if(hit) return; hit = true;
+        res({ errno:(x && x.errno) || 0, out:(x && x.stdout) || '', err:(x && x.stderr) || '' });
+      }).catch(rej);
+    }
+    if(typeof r === 'string'){
+      if(hit) return; hit = true;
+      res({ errno:0, out:r, err:'' });
+    }
+    setTimeout(function(){ if(!hit){ hit = true; rej(new Error('timeout')); } }, ms || 25000);
+  });
+}
+
+function viaSync(cmd){
+  return new Promise(function(res, rej){
+    var B = bridge();
+    if(!B) return rej(new Error('nobridge'));
+    try{
+      var r = B.exec(cmd);
+      if(r && typeof r.then === 'function')
+        r.then(function(x){ res({ errno:0, out:(typeof x === 'string' ? x : (x && x.stdout) || ''), err:'' }); })
+         .catch(rej);
+      else
+        res({ errno:0, out:(typeof r === 'string' ? r : String(r || '')), err:'' });
+    }catch(e){ rej(e); }
+  });
+}
+
+function probe(){
+  if(mode) return Promise.resolve(mode);
+  return viaName('echo __cfok', 6000).then(function(r){
+    if(String(r.out).indexOf('__cfok') < 0) throw new Error('bad echo');
+    mode = 'exec(cmd, cb)'; return mode;
+  }).catch(function(){
+    return viaSync('echo __cfok').then(function(r){
+      if(String(r.out).indexOf('__cfok') < 0) throw new Error('bad echo');
+      mode = 'exec(cmd) sync'; return mode;
+    });
+  });
+}
+
+function q(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+
+function BIN(args){
+  return '(for d in /data/adb/modules/titanbg /data/adb/modules_update/titanbg; do '
+    + 'if [ -f "$d/bin/tbg.sh" ]; then exec sh "$d/bin/tbg.sh" ' + args + '; fi; done) 2>&1';
+}
+
+function run(args){
+  return probe().then(function(){
+    return mode === 'exec(cmd, cb)' ? viaName(BIN(args)) : viaSync(BIN(args));
+  }).then(function(r){ return String(r.out || ''); });
+}
+
+function toast(msg){
+  var t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+}
+
+/* ---------- parse ---------- */
+function parseKV(txt){
+  var out = { rt:{}, apps:{}, st:{} };
+  String(txt || '').split('\n').forEach(function(line){
+    var i = line.indexOf('=');
+    if(i < 1) return;
+    var k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
+    if(k.indexOf('rt.') === 0){ out.rt[k.slice(3)] = v; return; }
+    if(k.indexOf('app.') === 0){ out.apps[k.slice(4)] = v; return; }
+    var m = k.match(/^s\.(.+)\.(state|bucket|appops|procs)$/);
+    if(m){
+      out.st[m[1]] = out.st[m[1]] || {};
+      out.st[m[1]][m[2]] = v;
+    }
+  });
+  return out;
+}
+
+/* ---------- render ---------- */
+function setKV(id, v){ var n = $(id); if(n) n.textContent = (v === '' || v === undefined || v === null) ? '—' : v; }
+function sw(id, on){ var n = $(id); if(n) n.classList.toggle('on', !!on); }
+
+function renderStatus(){
+  var rt = state.rt;
+  setKV('#ver', 'v' + (rt.version || '?').replace(/^v/, '') + ' · background killer per-app');
+  setKV('#cnt', (rt.count || '0') + ' app');
+  setKV('#kMode', (rt.mode || '—').toUpperCase() + (rt.enabled === '1' ? '' : ' · OFF'));
+  setKV('#kFg', rt.fg || 'tidak ada');
+  setKV('#kScreen', rt.screen === '1' ? 'ON' : (rt.screen === '0' ? 'OFF' : '—'));
+  setKV('#kIv', (rt.interval || '?') + 's / ' + (rt.grace || '?') + 's');
+  setKV('#kRoot', rt.root ? 'ada' : 'tidak ada');
+  setKV('#kBridge', state.bridge || '—');
+
+  var d = $('#daemonPill');
+  var alive = String(rt.daemon || '').indexOf('running') === 0;
+  d.textContent = alive ? 'daemon ' + String(rt.daemon).split(':')[1] : 'daemon mati';
+  d.className = 'pill ' + (alive ? 'on' : 'off');
+
+  $('#mHard').classList.toggle('sel', rt.mode === 'hard');
+  $('#mSoft').classList.toggle('sel', rt.mode === 'soft');
+  sw('#tBg', rt.bg_appops !== '0');
+  sw('#tBucket', rt.bucket !== '0');
+  sw('#tScreen', rt.screenoff !== '0');
+  sw('#tNotif', rt.notif_off === '1');
+  sw('#tBoot', rt.fs_boot === '1');
+  sw('#tEnabled', rt.enabled === '1');
+}
+
+function renderPick(){
+  var box = $('#pickList');
+  var qq = state.q.toLowerCase();
+  var all = state.pkgs.filter(function(p){ return !qq || p.indexOf(qq) >= 0; });
+  var listed = all.filter(function(p){ return LISTED[p]; });
+  var rest = all.filter(function(p){ return !LISTED[p]; });
+  var show = listed.concat(rest).slice(0, 400);
+  box.textContent = '';
+  if(!show.length){
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = state.pkgs.length ? 'tidak ada yang cocok' : 'daftar paket kosong — coba tekan muat ulang';
+    box.appendChild(e);
+    return;
+  }
+  show.forEach(function(pkg){
+    var row = document.createElement('div');
+    row.className = 'p' + (LISTED[pkg] ? ' on' : '');
+    var dot = document.createElement('div'); dot.className = 'dot';
+    var nm = document.createElement('div'); nm.className = 'pkg'; nm.textContent = pkg;
+    row.appendChild(dot); row.appendChild(nm);
+    if(LISTED[pkg]){
+      var t = document.createElement('span'); t.className = 'tag r'; t.textContent = 'BAN';
+      row.appendChild(t);
+    }
+    row.onclick = function(){ togglePkg(pkg); };
+    box.appendChild(row);
+  });
+  $('#pickCount').textContent = all.length + ' paket';
+}
+
+function renderBan(){
+  var apps = Object.keys(state.apps).sort();
+  var box = $('#banList');
+  box.textContent = '';
+  $('#banCount').textContent = apps.length + ' app';
+  if(!apps.length){
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = 'belum ada aplikasi. pilih dari daftar di atas.';
+    box.appendChild(e);
+    return;
+  }
+  apps.forEach(function(pkg){
+    var s = state.st[pkg] || {};
+    var row = document.createElement('div');
+    row.className = 'row';
+    var t = document.createElement('div'); t.className = 't';
+    var n = document.createElement('div'); n.className = 'n'; n.textContent = pkg;
+    var sub = document.createElement('div'); sub.className = 'p';
+    sub.textContent = (s.state || 'idle') + ' · ' + (s.bucket || '?')
+      + ' · appops ' + (s.appops || '?') + ' · proc ' + (s.procs || '0');
+    t.appendChild(n); t.appendChild(sub);
+    var tag = document.createElement('span');
+    var stt = (s.state || 'idle');
+    tag.className = 'tag ' + (stt === 'banned' ? 'r' : (stt === 'inuse' ? 'g' : 'a'));
+    tag.textContent = stt === 'banned' ? 'DIBAN' : (stt === 'inuse' ? 'DIPAKAI' : 'IDLE');
+    tag.onclick = function(ev){ ev.stopPropagation(); doCheck(pkg); };
+    var del = document.createElement('span');
+    del.className = 'tag'; del.textContent = 'hapus';
+    del.onclick = function(ev){ ev.stopPropagation(); delPkg(pkg); };
+    row.appendChild(t); row.appendChild(tag); row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+function renderCheck(){
+  var box = $('#checkBox');
+  box.textContent = '';
+  var c = state.check;
+  if(!c){
+    var e = document.createElement('div'); e.className = 'empty';
+    e.textContent = 'pilih app di daftar ban lalu ketuk badge statusnya';
+    box.appendChild(e);
+    return;
+  }
+  var head = document.createElement('div');
+  head.className = 'row';
+  var t = document.createElement('div'); t.className = 't';
+  var n = document.createElement('div'); n.className = 'n'; n.textContent = c.pkg || '—';
+  var msg = document.createElement('div'); msg.className = 'p'; msg.textContent = c.msg || '';
+  t.appendChild(n); t.appendChild(msg);
+  var b = document.createElement('span'); b.className = 'badge ' + (c.verdict || '');
+  b.textContent = c.verdict || '?';
+  head.appendChild(t); head.appendChild(b);
+  box.appendChild(head);
+
+  var g = document.createElement('div');
+  g.className = 'grid';
+  [['bucket', c.bucket], ['appops', c.appops], ['notif', c.notif],
+   ['procs', c.procs], ['state', c.state], ['foreground', c.foreground]].forEach(function(p){
+    var d = document.createElement('div'); d.className = 'kv';
+    var k = document.createElement('div'); k.className = 'k'; k.textContent = p[0];
+    var v = document.createElement('div'); v.className = 'v'; v.textContent = p[1] || '—';
+    d.appendChild(k); d.appendChild(v); g.appendChild(d);
+  });
+  box.appendChild(g);
+}
+
+/* ---------- actions ---------- */
+function load(){
+  return run('dump').then(function(txt){
+    var p = parseKV(txt);
+    state.rt = p.rt; state.apps = p.apps; state.st = p.st;
+    LISTED = {};
+    Object.keys(p.apps).forEach(function(k){ LISTED[k] = true; });
+    state.bridge = mode || '';
+    $('#noBridge').style.display = 'none';
+    renderStatus(); renderPick(); renderBan();
+    if(!Object.keys(p.apps).length) return;
+    return run('states').then(function(st){
+      var sp = parseKV(st);
+      Object.keys(sp.st).forEach(function(k){
+        state.st[k] = state.st[k] || {};
+        Object.keys(sp.st[k]).forEach(function(f){ state.st[k][f] = sp.st[k][f]; });
+      });
+      renderBan();
+    });
+  }).catch(function(e){
+    $('#noBridge').style.display = 'block';
+    toast('gagal: ' + (e && e.message ? e.message : e));
+  });
+}
+
+function loadPkgs(){
+  return run('installed' + (state.system ? ' all' : '')).then(function(txt){
+    state.pkgs = String(txt).split('\n').map(function(s){ return s.trim(); })
+      .filter(function(s){ return /^[a-zA-Z0-9._]+$/.test(s); });
+    renderPick();
+  }).catch(function(){});
+}
+
+function togglePkg(pkg){
+  var cmd = LISTED[pkg] ? 'del ' + q(pkg) : 'add ' + q(pkg);
+  LISTED[pkg] = !LISTED[pkg];
+  renderPick();
+  run(cmd).then(function(){ toast(LISTED[pkg] ? 'ditambah: ' + pkg : 'dihapus: ' + pkg); return load(); });
+}
+
+function delPkg(pkg){
+  LISTED[pkg] = false;
+  run('del ' + q(pkg)).then(function(){ toast('dihapus: ' + pkg); return load(); }).then(renderPick);
+}
+
+function doCheck(pkg){
+  run('check ' + q(pkg)).then(function(txt){
+    var p = parseKV(txt);
+    var c = {};
+    String(txt).split('\n').forEach(function(line){
+      var i = line.indexOf('=');
+      if(i < 1 || line.indexOf('check.') !== 0) return;
+      c[line.slice(6, i)] = line.slice(i + 1).trim();
+    });
+    state.check = c;
+    renderCheck();
+  });
+}
+
+function setk(k, v){
+  return run('setk ' + q(k) + ' ' + q(v));
+}
+
+function setMode(m){
+  setk('mode', m).then(function(){ return run('apply'); }).then(function(){
+    toast('mode: ' + m); return load();
+  });
+}
+
+$('#mHard').onclick = function(){ setMode('hard'); };
+$('#mSoft').onclick = function(){ setMode('soft'); };
+
+function bindToggle(sel, key){
+  $(sel).onclick = function(){
+    var on = !$(sel).classList.contains('on');
+    $(sel).classList.toggle('on', on);
+    setk(key, on ? '1' : '0').then(function(){
+      if(key === 'enabled') return run('apply');
+    }).then(function(){ toast(key + ' = ' + (on ? 1 : 0)); return load(); });
+  };
+}
+bindToggle('#tBg', 'bg_appops');
+bindToggle('#tBucket', 'bucket');
+bindToggle('#tScreen', 'screenoff');
+bindToggle('#tNotif', 'notif_off');
+bindToggle('#tBoot', 'fs_boot');
+bindToggle('#tEnabled', 'enabled');
+
+$('#btnApply').onclick = function(){
+  toast('menerapkan…');
+  run('apply').then(function(txt){
+    toast(txt.split('\n')[0] || 'selesai');
+    return load();
+  });
+};
+
+$('#btnReset').onclick = function(){
+  run('reset').then(function(){ toast('semua app dilonggarkan'); return load(); });
+};
+
+$('#q').oninput = function(e){ state.q = e.target.value.trim(); renderPick(); };
+$('#sysBtn').onclick = function(){
+  state.system = !state.system;
+  this.classList.toggle('on', state.system);
+  loadPkgs();
+};
+$('#logBtn').onclick = function(){
+  run('log').then(function(txt){ $('#logBox').textContent = txt || '(kosong)'; });
+};
+
+probe().then(function(m){
+  state.bridge = m; setKV('#kBridge', m);
+  $('#noBridge').style.display = 'none';
+})
+  .catch(function(){ state.bridge = ''; $('#noBridge').style.display = 'block'; });
+
+load();
+loadPkgs();
+
+window.__tbg = { load: load, loadPkgs: loadPkgs, run: run, state: state,
+  resetMode: function(){ mode = null; }, renderPick: renderPick };
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+#!/sbin/sh
+umask 022
+OUTFD=$2
+ZIPFILE=$3
+NZ="${NVBASE:-/data/adb}"
+MODID=titanbg
+MODPATH="$NZ/modules/$MODID"
+CFG="$NZ/$MODID"
+
+echo "*******************************"
+echo " TitanBG installer"
+echo "*******************************"
+
+mount /data 2>/dev/null
+mkdir -p "$MODPATH" "$CFG/state" 2>/dev/null
+
+UNZIP=$(command -v unzip 2>/dev/null)
+[ -z "$UNZIP" ] && [ -x /data/adb/ksu/bin/busybox ] && UNZIP="/data/adb/ksu/bin/busybox unzip"
+[ -z "$UNZIP" ] && [ -x /data/adb/magisk/busybox ] && UNZIP="/data/adb/magisk/busybox unzip"
+[ -z "$UNZIP" ] && [ -x /data/adb/ap/bin/busybox ] && UNZIP="/data/adb/ap/bin/busybox unzip"
+[ -z "$UNZIP" ] && UNZIP="busybox unzip"
+
+$UNZIP -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >/dev/null 2>&1
+
+chmod 755 "$MODPATH" 2>/dev/null
+chmod 755 "$MODPATH"/*.sh 2>/dev/null
+chmod 755 "$MODPATH"/bin/tbg.sh 2>/dev/null
+chmod 644 "$MODPATH/module.prop" "$MODPATH/defaults.conf" 2>/dev/null
+chmod 644 "$MODPATH"/webroot/* 2>/dev/null
+
+[ -s "$CFG/config.conf" ] || cp -f "$MODPATH/defaults.conf" "$CFG/config.conf" 2>/dev/null
+
+MODPATH="$MODPATH" sh "$MODPATH/customize.sh"
+exit 0

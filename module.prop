@@ -1,0 +1,6 @@
+id=titanbg
+name=TitanBG
+version=v1.0
+versionCode=1
+author=eLSanz
+description=Larang total aplikasi pilihan berjalan di background (appops + standby bucket restricted + force-stop saat idle). Aplikasi tetap normal saat dibuka, otomatis dilarang lagi begitu ditinggal. Pilih aplikasi langsung dari WebUI, ada checker untuk membuktikan aturannya benar-benar kena.
