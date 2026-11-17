@@ -102,6 +102,15 @@ procs_of() {
   ps -A 2>/dev/null | grep -v grep | grep -c "$1"
 }
 
+# murah: pidof itu applet native (bukan Java), jauh lebih ringan dari dumpsys
+pkg_running() {
+  if command -v pidof >/dev/null 2>&1; then
+    pidof "$1" >/dev/null 2>&1
+    return $?
+  fi
+  ps -A 2>/dev/null | grep -v grep | grep -q "$1"
+}
+
 do_enforce() {
   _p=$1
   if [ "$(getv bg_appops)" != 0 ]; then
@@ -345,26 +354,61 @@ cmd_daemon() {
     _iv=$(getv interval); case "$_iv" in ''|*[!0-9]*) _iv=3 ;; esac
     _gr=$(getv grace);    case "$_gr" in ''|*[!0-9]*) _gr=10 ;; esac
 
-    _fg=$(fg_pkg)
-    printf '%s\n' "$_fg" > "$CFG/fg" 2>/dev/null
+    _apps=$(apps_list)
+
+    # tidak ada app terdaftar -> nol kerja, nol dumpsys
+    if [ -z "$_apps" ]; then
+      printf 'idle\n' > "$CFG/fg" 2>/dev/null
+      sleep 10
+      continue
+    fi
+
+    # ---- filter termurah: pakai pidof (native). Kalau tidak satu pun app
+    #      terdaftar punya proses, tidak ada yang bisa jadi foreground dan
+    #      tidak ada yang perlu dibunuh -> dumpsys dilewati sepenuhnya.
+    _alive=0
+    for _p in $_apps; do
+      pkg_running "$_p" && { _alive=1; break; }
+    done
+    if [ "$_alive" = 0 ]; then
+      printf 'none\n' > "$CFG/fg" 2>/dev/null
+      for _p in $_apps; do
+        [ "$(st_get "$_p")" = banned ] || { do_enforce "$_p"; st_put "$_p" banned; }
+      done
+      sleep "$_iv"
+      continue
+    fi
+
     if screen_on; then _sc=1; else _sc=0; fi
     printf '%s\n' "$_sc" > "$CFG/screen" 2>/dev/null
 
-    # pindah ke layar mati -> bersihkan semua sekaligus
-    if [ "$_scr_prev" = 1 ] && [ "$_sc" = 0 ] && [ "$(getv screenoff)" = 1 ]; then
-      for _p in $(apps_list); do
+    # ---- layar mati + sapu bersih: mode hemat, tanpa dumpsys ----
+    if [ "$_sc" = 0 ] && [ "$(getv screenoff)" = 1 ]; then
+      [ "$_scr_prev" = 1 ] && log "screen off -> purge all"
+      _scr_prev=0
+      printf 'off\n' > "$CFG/fg" 2>/dev/null
+      printf '%s\n' "$_sc" > "$CFG/screen_prev" 2>/dev/null
+      for _p in $_apps; do
+        if [ "$(procs_of "$_p")" = 0 ]; then
+          st_put "$_p" banned
+          continue
+        fi
         do_enforce "$_p"
         do_kill "$_p"
         st_put "$_p" banned
       done
-      log "screen off -> purge all"
+      sleep "$_iv"; sleep "$_iv"; sleep "$_iv"; sleep "$_iv"
+      continue
     fi
     _scr_prev=$_sc
     printf '%s\n' "$_sc" > "$CFG/screen_prev" 2>/dev/null
 
-    for _p in $(apps_list); do
+    _fg=$(fg_pkg)
+    printf '%s\n' "$_fg" > "$CFG/fg" 2>/dev/null
+
+    for _p in $_apps; do
       _s=$(st_get "$_p")
-      if [ "$_sc" = 1 ] && [ "$_p" = "$_fg" ]; then
+      if [ "$_p" = "$_fg" ]; then
         if [ "$_s" != inuse ]; then
           do_relax "$_p"
           st_put "$_p" inuse
@@ -402,7 +446,6 @@ cmd_daemon() {
     done
 
     sleep "$_iv"
-    [ "$_sc" = 0 ] && sleep "$_iv"
   done
 }
 

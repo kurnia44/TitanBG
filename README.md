@@ -70,6 +70,23 @@ dan siapa yang sedang foreground. Verdict:
 - `WARN` — terdaftar tapi aturan belum menempel (tekan Terapkan)
 - `FAIL` — paket tidak ada / tidak bisa diperiksa
 
+## Konsumsi resource
+
+Daemon-nya cuma satu proses shell (~1.5 MB RSS), tanpa service native, tanpa Java, tanpa `.so`.
+
+Loop sengaja dibuat bertingkat supaya murah:
+
+| Kondisi | Kerja per tick |
+|---|---|
+| belum ada app terdaftar | tidur 10s, nol perintah |
+| app terdaftar tidak punya proses (kasus paling umum) | `pidof` native saja, **nol dumpsys** |
+| app terdaftar hidup / sedang dibuka | 1× `dumpsys activity` (+ `dumpsys power`) per `interval` |
+| layar mati + `screenoff=1` | tanpa dumpsys, cuma `pidof` + force-stop, tidur 4× `interval` |
+
+`dumpsys` dijalankan lewat `head -80` supaya prosesnya langsung kena SIGPIPE dan mati cepat —
+memori puncaknya sementara, tidak menumpuk. Kalau mau lebih hemat lagi, naikkan `interval`
+ke 5–8 detik.
+
 ## Uninstall
 
 `uninstall.sh` mengembalikan appops semua app ke `allow` lalu menghapus `/data/adb/titanbg`.
