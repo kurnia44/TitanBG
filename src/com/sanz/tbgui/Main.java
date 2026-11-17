@@ -27,7 +27,7 @@ import java.util.List;
 
 public final class Main {
 
-    private static final int ICON_PX = 96;
+    private static final int ICON_PX = 72;
 
     public static void main(String[] args) {
         try {
@@ -135,7 +135,7 @@ public final class Main {
                 Bitmap bmp = render(d);
                 if (bmp != null) {
                     ByteArrayOutputStream bo = new ByteArrayOutputStream(8192);
-                    bmp.compress(Bitmap.CompressFormat.WEBP, 80, bo);
+                    bmp.compress(Bitmap.CompressFormat.WEBP, 72, bo);
                     bmp.recycle();
                     b64 = Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
                     bo.close();

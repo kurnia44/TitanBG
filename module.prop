@@ -1,6 +1,6 @@
 id=titanbg
 name=TitanBG
-version=v1.1.0
-versionCode=3
+version=v1.2.0
+versionCode=4
 author=eLSanz
-description=Larang total aplikasi pilihan berjalan di background (appops + standby bucket restricted + force-stop saat idle). WebUI baru: banner SANZ-TITAN, ikon + nama aplikasi asli, daftar ban berbatas 10 baris dengan scroll, checker bukti aturan.
+description=Larang total aplikasi pilihan berjalan di background (appops + standby bucket restricted + force-stop saat idle). v1.2.0: pilih banyak aplikasi dulu lalu simpan sekali (tanpa freeze), pilih semua per filter, zoom dikunci, ikon asli muncul lebih cepat (batch 16 + lazy), chevron & detail ban diperbaiki.

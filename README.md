@@ -48,6 +48,7 @@ Semua bisa diubah dari WebUI, atau lewat CLI:
 ```sh
 sh /data/adb/modules/titanbg/bin/tbg.sh dump
 sh /data/adb/modules/titanbg/bin/tbg.sh add com.ss.android.ugc.trill
+sh /data/adb/modules/titanbg/bin/tbg.sh bulk add com.a.app com.b.app com.c.app
 sh /data/adb/modules/titanbg/bin/tbg.sh apply
 sh /data/adb/modules/titanbg/bin/tbg.sh check com.ss.android.ugc.trill
 ```
@@ -61,6 +62,14 @@ Buka dari aplikasi manajer (KernelSU → Modul → TitanBG → Buka WebUI). Tamp
 - daftar aplikasi memakai **ikon dan nama aplikasi asli**, bukan cuma nama paket
 - daftar aplikasi maupun daftar ban dibatasi ±10 baris lalu di-scroll, tidak memanjang ke bawah
 - pencarian nama/paket, filter Semua · Terpasang · System · Diban, muat bertahap 60 baris
+- **pilih banyak dulu, simpan sekali**: ketukan pada aplikasi cuma menandai pilihan (tidak ada
+  perintah yang jalan), lalu satu tombol `Simpan N` yang menulis config sekaligus + menerapkan.
+  Ada juga `pilih semua (N)` untuk seluruh hasil filter. Ini menghilangkan freeze saat memilih
+- halaman dikunci zoom-nya (`user-scalable=no` + gestur pinch/double-tap diblokir), jadi layout
+  tidak bisa ikut membesar
+- ikon dimuat bertahap: placeholder inisial langsung tampil, ikon asli diambil per batch 16
+  hanya untuk baris yang terlihat (IntersectionObserver), plus cache negatif supaya paket tanpa
+  ikon tidak diminta berulang
 - checker membaca keadaan sistem dan menampilkan verdict + meter (appops/bucket/proses/state)
 - log daemon bisa dibuka langsung dari tab Cek
 
@@ -71,7 +80,7 @@ WebUI modul cuma punya shell, jadi label dan ikon diambil lewat helper kecil
 
 ```sh
 sh /data/adb/modules/titanbg/bin/tbg.sh catalog        # pkg<TAB>label<TAB>s|u
-sh /data/adb/modules/titanbg/bin/tbg.sh icons <pkg..>  # base64 webp 96px
+sh /data/adb/modules/titanbg/bin/tbg.sh icons <pkg..>  # base64 webp 72px
 ```
 
 Helper memanggil `app_process` (bukan daemon, bukan service, bukan Java yang menetap) lalu
@@ -124,3 +133,22 @@ Kalau modul dicabut paksa, jalankan:
 - Aplikasi yang punya widget atau layanan alarm penting (jam, alarm, messenger) jangan dimasukkan.
 - Beberapa OEM (Xiaomi/Oppo/vivo) punya jalur push sendiri di luar FCM — mode `hard` tetap
   mematikannya karena proses app dimatikan paksa.
+
+## Changelog
+
+### v1.2.0
+
+- WebUI: pemilihan bertahap — pilih sebanyak apa pun dulu, baru satu aksi `Simpan & terapkan`.
+  Tidak ada lagi perintah shell yang jalan tiap ketukan (ini penyebab freeze sebelumnya).
+- WebUI: `pilih semua (N)` per filter, tombol `batal` untuk membuang pilihan, indikator
+  `N perubahan belum disimpan`, dan konfirmasi sebelum menyimpan.
+- WebUI: zoom dimatikan (pinch, double-tap, gesture iOS) — tampilan selalu pas lebar layar.
+- WebUI: ikon asli muncul lebih cepat — batch 16 paket sekali panggil, lazy per baris terlihat,
+  placeholder langsung tampil, dan cache negatif untuk paket tanpa ikon.
+- WebUI: perbaikan bug — chevron daftar ban dibuat dengan `createElementNS` (sebelumnya tidak
+  pernah tergambar), detail ban dibaca saat baris dibuka (bukan `states` massal saat load),
+  pencarian di-debounce, `probe()` tidak dobel, dan semua panggilan shell punya timeout.
+- CLI: perintah baru `bulk add|del <pkg..>` — banyak paket ditulis dalam satu kali tulis config.
+- CLI: `apply` membaca config sekali (bukan per app), force-stop hanya untuk app yang benar-benar
+  punya proses, log ditulis sekali per apply. `states [pkg..]` menerima daftar paket dan dibatasi
+  40 baris. Ikon dikecilkan ke 72px / kualitas 72.

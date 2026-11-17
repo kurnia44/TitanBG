@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#07080b">
 <title>TitanBG — SANZ TITAN</title>
 <style>
@@ -20,10 +20,11 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
 body{
   background:var(--bg);color:var(--tx);
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  font-size:15px;line-height:1.45;overflow-x:hidden;
+  font-size:15px;line-height:1.45;overflow-x:hidden;touch-action:manipulation;
   padding-bottom:calc(var(--nav) + 96px);
 }
 body::before{
@@ -270,6 +271,13 @@ header.solid{border-bottom-color:var(--line);background:rgba(7,8,11,.94);padding
 .arow.on .pickbtn{background:linear-gradient(160deg,#ff5f6d,#c9344a);border-color:transparent;
   box-shadow:0 4px 14px -6px rgba(255,95,109,.9)}
 .arow.on .pickbtn svg{stroke:#fff;stroke-dashoffset:0}
+/* dipilih tapi belum disimpan */
+.arow.pend{box-shadow:inset 0 0 0 1.5px rgba(255,196,92,.5);background:rgba(255,196,92,.05)}
+.arow.pend .pickbtn{border-color:rgba(255,196,92,.8)}
+.arow.pend:not(.on) .pickbtn{background:rgba(255,196,92,.16)}
+.fab.has{box-shadow:0 16px 38px -12px rgba(255,150,60,1),inset 0 1px 0 rgba(255,255,255,.6)}
+.fab.has::after{animation:none}
+.fab.has span{display:inline-block}
 
 /* ---------- ban row ---------- */
 .brow{border-radius:14px;transition:background .2s;border:1px solid transparent}
@@ -479,7 +487,7 @@ nav .tab .badge{
   </div>
   <div class="htitle">
     <b>SANZ · TITAN</b>
-    <small id="verTxt">v1.1.0</small>
+    <small id="verTxt">v1.2.0</small>
   </div>
   <div class="spacer"></div>
   <div class="led" id="daemonPill"><span class="d"></span><span id="daemonTxt">daemon —</span></div>
@@ -610,7 +618,15 @@ nav .tab .badge{
       <div class="scroll" id="pickList"></div>
 
       <div class="hintrow">
-        <p class="hint" id="pickHint">Ketuk aplikasi untuk memasukkan atau mengeluarkan dari daftar ban.</p>
+        <p class="hint" id="pickHint">Ketuk aplikasi sebanyak yang kamu mau. Pilihan disimpan dulu, baru dijalankan saat kamu tekan tombol simpan.</p>
+        <button class="btn mini" id="btnPickAll">pilih semua</button>
+      </div>
+      <div class="hintrow" id="pendRow" style="display:none">
+        <p class="hint" id="pendTxt" style="color:var(--gold3);margin:0;flex:1">0 perubahan belum disimpan</p>
+        <button class="btn mini ghost-red" id="btnDiscard">batal</button>
+      </div>
+      <div class="hintrow">
+        <p class="hint">Label atau ikon tidak sesuai? muat ulang cache.</p>
         <button class="btn mini" id="btnRecache">muat ulang label</button>
       </div>
     </section>
@@ -710,12 +726,37 @@ var state = {
   check:null, bridge:'', loadingPkgs:true, catReady:false
 };
 
-var LISTED = {};
-var PROWS = {}, BROWS = {};   /* pkg -> [node ikon] untuk update in-place */
+var LISTED = {};                 /* isi config saat ini (dari dump) */
+var PEND = { add:{}, del:{} };   /* pilihan yang belum disimpan */
+var PROWS = {}, BROWS = {};      /* pkg -> [node ikon] */
 var iconQueue = [], iconBusy = false, iconSeen = {};
 
+/* ================= pilihan tertunda ================= */
+function desired(p){
+  if(PEND.add[p]) return true;
+  if(PEND.del[p]) return false;
+  return !!LISTED[p];
+}
+function isDirty(p){ return desired(p) !== !!LISTED[p]; }
+function pendCount(){
+  var n = 0, k;
+  for(k in PEND.add){ if(!LISTED[k]) n++; }
+  for(k in PEND.del){ if(LISTED[k]) n++; }
+  return n;
+}
+function pendLists(){
+  var adds = [], dels = [], k;
+  for(k in PEND.add){ if(!LISTED[k]) adds.push(k); }
+  for(k in PEND.del){ if(LISTED[k]) dels.push(k); }
+  return { adds: adds, dels: dels };
+}
+function setDesired(p, on){
+  if(on){ if(LISTED[p]) delete PEND.del[p]; else PEND.add[p] = 1; }
+  else  { if(LISTED[p]) PEND.del[p] = 1; else delete PEND.add[p]; }
+}
+
 /* ================= bridge ================= */
-var mode = null, seq = 0;
+var mode = null, seq = 0, probePromise = null;
 
 function bridge(){
   if(window.ksu && typeof window.ksu.exec === 'function') return window.ksu;
@@ -768,7 +809,8 @@ function viaSync(cmd){
 
 function probe(){
   if(mode) return Promise.resolve(mode);
-  return viaName('echo __cfok', 6000).then(function(r){
+  if(probePromise) return probePromise;
+  probePromise = viaName('echo __cfok', 6000).then(function(r){
     if(String(r.out).indexOf('__cfok') < 0) throw new Error('bad echo');
     mode = 'exec(cmd, cb)'; return mode;
   }).catch(function(){
@@ -776,19 +818,33 @@ function probe(){
       if(String(r.out).indexOf('__cfok') < 0) throw new Error('bad echo');
       mode = 'exec(cmd) sync'; return mode;
     });
-  });
+  }).then(function(m){ probePromise = null; return m; }, function(e){ probePromise = null; throw e; });
+  return probePromise;
 }
 
 function q(s){ return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+function cssq(s){ return String(s).replace(/["\\]/g, '\\$&'); }
 
 function BIN(args){
   return '(for d in /data/adb/modules/titanbg /data/adb/modules_update/titanbg; do '
     + 'if [ -f "$d/bin/tbg.sh" ]; then exec sh "$d/bin/tbg.sh" ' + args + '; fi; done) 2>&1';
 }
 
+function withTimeout(p, ms){
+  return new Promise(function(res, rej){
+    var done = false;
+    var t = setTimeout(function(){ if(!done){ done = true; rej(new Error('timeout')); } }, ms || 25000);
+    p.then(function(v){ if(!done){ done = true; clearTimeout(t); res(v); } },
+           function(e){ if(!done){ done = true; clearTimeout(t); rej(e); } });
+  });
+}
+
 function run(args, ms){
+  var tmo = ms || 25000;
   return probe().then(function(){
-    return mode === 'exec(cmd, cb)' ? viaName(BIN(args), ms) : viaSync(BIN(args));
+    return mode === 'exec(cmd, cb)'
+      ? withTimeout(viaName(BIN(args), tmo), tmo + 3000)
+      : withTimeout(viaSync(BIN(args)), tmo);
   }).then(function(r){ return String(r.out || ''); });
 }
 
@@ -805,6 +861,7 @@ function toast(msg, kind){
 function buzz(ms){ try{ navigator.vibrate && navigator.vibrate(ms || 8); }catch(e){} }
 
 function countUp(node, to){
+  if(!node) return;
   var from = parseInt(node.getAttribute('data-v') || '0', 10) || 0;
   var n = parseInt(to, 10) || 0;
   node.setAttribute('data-v', String(n));
@@ -859,7 +916,20 @@ function meta(pkg){
   return { label: pretty(pkg), sys: 'u' };
 }
 
-function iconNode(pkg){
+/* ================= ikon (lazy + batch) ================= */
+var IO = null;
+if('IntersectionObserver' in window){
+  IO = new IntersectionObserver(function(ents){
+    ents.forEach(function(e){
+      if(!e.isIntersecting) return;
+      var p = e.target.getAttribute('data-ip');
+      try{ IO.unobserve(e.target); }catch(err){}
+      if(p) needIcon(p);
+    });
+  }, { rootMargin: '200px 0px' });
+}
+
+function iconNode(pkg, lazy){
   var m = meta(pkg);
   var hue = hashHue(pkg);
   var box = document.createElement('div');
@@ -873,11 +943,17 @@ function iconNode(pkg){
   var url = state.icons[pkg];
   if(url){
     var im = document.createElement('img');
-    im.src = url; im.className = 'ready';
+    im.className = 'ready';
+    im.src = url;
     im.onload = function(){ box.classList.add('done'); };
     box.appendChild(im);
-  } else {
-    needIcon(pkg);
+  } else if(state.cat[pkg] && !iconSeen[pkg]){
+    if(lazy && IO){
+      box.setAttribute('data-ip', pkg);
+      IO.observe(box);
+    } else {
+      needIcon(pkg);
+    }
   }
   return box;
 }
@@ -889,25 +965,34 @@ function needIcon(pkg){
   if(!iconBusy) pumpIcons();
 }
 
+var ICON_BATCH = 16;
+
 function pumpIcons(){
   if(iconBusy) return;
-  var batch = iconQueue.splice(0, 8);
+  var batch = iconQueue.splice(0, ICON_BATCH);
   if(!batch.length) return;
   iconBusy = true;
-  var args = 'icons ' + batch.map(q).join(' ');
-  run(args, 40000).then(function(txt){
+  run('icons ' + batch.map(q).join(' '), 60000).then(function(txt){
+    var seen = {};
     String(txt).split('\n').forEach(function(line){
-      var i = line.indexOf('=');
-      if(i < 1 || line.indexOf('i.') !== 0) return;
-      var pkg = line.slice(2, i), b64 = line.slice(i + 1).trim();
-      if(!b64) return;
-      var url = 'data:image/webp;base64,' + b64;
-      state.icons[pkg] = url;
-      applyIcon(pkg, url);
+      if(line.length < 4) return;
+      var tag = line.slice(0, 2), i = line.indexOf('=');
+      if(i < 3 || line.charAt(2) === undefined) return;
+      var pkg = line.slice(2, i), val = line.slice(i + 1).trim();
+      if(tag === 'i.' && val){
+        seen[pkg] = 1;
+        var url = 'data:image/webp;base64,' + val;
+        state.icons[pkg] = url;
+        applyIcon(pkg, url);
+      } else if(tag === 'x.'){
+        seen[pkg] = 1;
+      }
     });
+    /* yang tidak dijawab helper: biar dicoba lagi di render berikutnya */
+    batch.forEach(function(p){ if(!seen[p]) iconSeen[p] = 0; });
   }).catch(function(){}).then(function(){
     iconBusy = false;
-    if(iconQueue.length) setTimeout(pumpIcons, 40);
+    if(iconQueue.length) setTimeout(pumpIcons, 16);
   });
 }
 
@@ -962,8 +1047,7 @@ function renderStatus(){
   setKV('#kModel', rt.model || '—');
   setKV('#kSdk', rt.sdk ? 'SDK ' + rt.sdk : '—');
 
-  var seg = $('#segMode');
-  seg.setAttribute('data-mode', rt.mode === 'soft' ? 'soft' : 'hard');
+  $('#segMode').setAttribute('data-mode', rt.mode === 'soft' ? 'soft' : 'hard');
 
   sw('#tBg', rt.bg_appops !== '0');
   sw('#tBucket', rt.bucket !== '0');
@@ -979,7 +1063,7 @@ function filteredPkgs(){
   var out = state.pkgs.filter(function(p){
     if(state.filter === 'user' && meta(p).sys === 's') return false;
     if(state.filter === 'sys' && meta(p).sys !== 's') return false;
-    if(state.filter === 'ban' && !LISTED[p]) return false;
+    if(state.filter === 'ban' && !desired(p)) return false;
     if(!qq) return true;
     var lbl = (meta(p).label || '').toLowerCase();
     return p.toLowerCase().indexOf(qq) >= 0 || lbl.indexOf(qq) >= 0;
@@ -992,6 +1076,10 @@ function filteredPkgs(){
 }
 
 var pickShown = 60;
+
+function rowClass(pkg){
+  return 'arow' + (desired(pkg) ? ' on' : '') + (isDirty(pkg) ? ' pend' : '');
+}
 
 function renderPick(){
   var box = $('#pickList');
@@ -1010,13 +1098,14 @@ function renderPick(){
   }
 
   var list = filteredPkgs();
-  $('#pickCount').textContent = list.length + ' app';
+  $('#pickCount').textContent = list.length + ' app' + (pendCount() ? ' · ' + pendCount() + ' dipilih' : '');
 
   if(!list.length){
     box.innerHTML = '<div class="empty">'
       + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>'
-      + '<b>Tidak ada yang cocok</b>' + (state.pkgs.length ? 'coba kata kunci lain atau ganti filter' : 'daftar paket kosong, tekan FAB lalu muat ulang halaman')
+      + '<b>Tidak ada yang cocok</b>' + (state.pkgs.length ? 'coba kata kunci lain atau ganti filter' : 'daftar paket kosong, tekan muat ulang label')
       + '</div>';
+    syncPendingUI(); syncPickAll();
     return;
   }
 
@@ -1024,11 +1113,11 @@ function renderPick(){
   list.slice(0, pickShown).forEach(function(pkg, idx){
     var m = meta(pkg);
     var row = document.createElement('div');
-    row.className = 'arow' + (LISTED[pkg] ? ' on' : '');
+    row.className = rowClass(pkg);
     row.setAttribute('data-pkg', pkg);
     row.style.animationDelay = Math.min(idx, 14) * 16 + 'ms';
 
-    var ic = iconNode(pkg);
+    var ic = iconNode(pkg, true);
     PROWS[pkg] = PROWS[pkg] || [];
     PROWS[pkg].push(ic);
 
@@ -1060,14 +1149,50 @@ function renderPick(){
     more.onclick = function(){ pickShown += 60; renderPick(); };
     box.appendChild(more);
   }
+
+  syncPendingUI(); syncPickAll();
+}
+
+function paintPickRow(pkg){
+  var rows = $$('#pickList [data-pkg="' + cssq(pkg) + '"]');
+  rows.forEach(function(r){ r.className = rowClass(pkg); });
+}
+
+function syncPickAll(){
+  var b = $('#btnPickAll');
+  if(!b) return;
+  if(state.loadingPkgs && !state.pkgs.length){ b.textContent = 'pilih semua'; return; }
+  var list = filteredPkgs();
+  if(!list.length){ b.textContent = 'pilih semua'; return; }
+  var allOn = list.every(function(p){ return desired(p); });
+  b.textContent = (allOn ? 'lepas semua (' : 'pilih semua (') + list.length + ')';
+}
+
+function syncPendingUI(){
+  var n = pendCount();
+  var row = $('#pendRow');
+  if(row) row.style.display = n ? 'flex' : 'none';
+  var pt = $('#pendTxt');
+  if(pt) pt.textContent = n + ' perubahan belum disimpan';
+  var fab = $('#fabApply');
+  if(fab){
+    if(n){ fab.classList.add('has'); $('#fabTxt').textContent = 'Simpan ' + n; }
+    else { fab.classList.remove('has'); $('#fabTxt').textContent = 'Terapkan'; }
+  }
+  var cnt = $('#pickCount');
+  if(cnt && state.pkgs.length){
+    cnt.textContent = filteredPkgs().length + ' app' + (n ? ' · ' + n + ' dipilih' : '');
+  }
 }
 
 /* ================= render: daftar ban ================= */
 var openBan = {};
+var BCELLS = {};
 
 function renderBan(){
   var box = $('#banList');
   BROWS = {};
+  BCELLS = {};
   box.textContent = '';
   var apps = Object.keys(state.apps).sort(function(a, b){
     var la = (meta(a).label || a).toLowerCase(), lb = (meta(b).label || b).toLowerCase();
@@ -1098,7 +1223,7 @@ function renderBan(){
     var head = document.createElement('div');
     head.className = 'head';
 
-    var ic = iconNode(pkg);
+    var ic = iconNode(pkg, false);
     BROWS[pkg] = BROWS[pkg] || [];
     BROWS[pkg].push(ic);
 
@@ -1116,7 +1241,7 @@ function renderBan(){
     pill.className = 'st ' + cls;
     pill.innerHTML = '<span class="d"></span>' + lbl;
 
-    var chev = document.createElement('svg');
+    var chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     chev.setAttribute('class', 'chev');
     chev.setAttribute('viewBox', '0 0 24 24');
     chev.setAttribute('fill', 'none');
@@ -1131,12 +1256,20 @@ function renderBan(){
     det.className = 'bdet';
     var dg = document.createElement('div');
     dg.className = 'dgrid';
+    var cells = {};
     [['bucket', s.bucket || '?'], ['appops', s.appops || '?'], ['proses', s.procs || '0'], ['state', stt]]
       .forEach(function(pair){
         var c = document.createElement('div');
         c.className = 'dcell';
-        c.innerHTML = '<div class="k">' + pair[0] + '</div><div class="v">' + esc(pair[1]) + '</div>';
+        var kv = document.createElement('div');
+        kv.className = 'v';
+        kv.textContent = pair[1];
+        var kk = document.createElement('div');
+        kk.className = 'k';
+        kk.textContent = pair[0];
+        c.appendChild(kk); c.appendChild(kv);
         dg.appendChild(c);
+        cells[pair[0]] = kv;
       });
     var acts = document.createElement('div');
     acts.className = 'bact';
@@ -1149,11 +1282,7 @@ function renderBan(){
     bDel.textContent = 'Lepas';
     bDel.onclick = function(ev){
       ev.stopPropagation();
-      delPkg(pkg);
-      var n = wrap;
-      n.style.transition = 'opacity .22s, transform .22s';
-      n.style.opacity = '0'; n.style.transform = 'translateX(-14px)';
-      setTimeout(function(){ n.remove(); }, 200);
+      delPkg(pkg, wrap);
     };
     acts.appendChild(bCheck); acts.appendChild(bDel);
     det.appendChild(dg); det.appendChild(acts);
@@ -1162,12 +1291,41 @@ function renderBan(){
       openBan[pkg] = !openBan[pkg];
       wrap.classList.toggle('open', !!openBan[pkg]);
       buzz(6);
+      if(openBan[pkg] && BCELLS[pkg] && !BCELLS[pkg].loaded) loadBanDetail(pkg, cells, pill);
     };
+
+    BCELLS[pkg] = { cells: cells, pill: pill, loaded: false };
 
     wrap.appendChild(head); wrap.appendChild(det);
     frag.appendChild(wrap);
   });
   box.appendChild(frag);
+}
+
+function loadBanDetail(pkg, cells, pill){
+  run('check ' + q(pkg), 30000).then(function(txt){
+    var c = parseCheck(txt);
+    if(!c || !c.pkg) return;
+    state.st[pkg] = state.st[pkg] || {};
+    state.st[pkg].bucket = c.bucket;
+    state.st[pkg].appops = c.appops;
+    state.st[pkg].procs = c.procs;
+    state.st[pkg].state = c.state;
+    var rec = BCELLS[pkg];
+    if(rec){
+      rec.loaded = true;
+      rec.cells.bucket.textContent = c.bucket || '?';
+      rec.cells.appops.textContent = c.appops || '?';
+      rec.cells.proses.textContent = c.procs || '0';
+      rec.cells.state.textContent = c.state || 'idle';
+      var stt = c.state || 'idle';
+      var cls = stt === 'banned' ? 'banned' : (stt === 'inuse' ? 'inuse' : 'idle');
+      var lbl = stt === 'banned' ? 'DIBAN' : (stt === 'inuse' ? 'DIPAKAI' : 'IDLE');
+      rec.pill.className = 'st ' + cls;
+      rec.pill.innerHTML = '<span class="d"></span>' + lbl;
+    }
+    if(state.st[pkg].state) { /* sudah tersimpan */ }
+  }).catch(function(){});
 }
 
 /* ================= render: checker ================= */
@@ -1248,6 +1406,16 @@ function parseKV(txt){
   return out;
 }
 
+function parseCheck(txt){
+  var c = {};
+  String(txt || '').split('\n').forEach(function(line){
+    var i = line.indexOf('=');
+    if(i < 1 || line.indexOf('check.') !== 0) return;
+    c[line.slice(6, i)] = line.slice(i + 1).trim();
+  });
+  return c;
+}
+
 function load(){
   return run('dump').then(function(txt){
     var p = parseKV(txt);
@@ -1257,39 +1425,34 @@ function load(){
     state.bridge = mode || '';
     $('#noBridge').style.display = 'none';
     renderStatus(); renderPick(); renderBan(); renderCekChips(); renderCheck();
-    var nBanned = Object.keys(p.apps).length;
-    if(nBanned > 40){
-      toast('detail status dilewati: ' + nBanned + ' app. pakai Cek bukti per app');
-      return null;
-    }
-    if(!Object.keys(p.apps).length){
-      return run('states').then(function(st){
-        var sp = parseKV(st);
-        Object.keys(sp.st).forEach(function(k){
-          state.st[k] = state.st[k] || {};
-          Object.keys(sp.st[k]).forEach(function(f){ state.st[k][f] = sp.st[k][f]; });
-        });
-        renderBan(); renderCekChips();
-      });
-    }
-    return run('states', 45000).then(function(st){
-      var sp = parseKV(st);
-      Object.keys(sp.st).forEach(function(k){
-        state.st[k] = state.st[k] || {};
-        Object.keys(sp.st[k]).forEach(function(f){ state.st[k][f] = sp.st[k][f]; });
-      });
-      renderBan(); renderCekChips(); renderCheck();
-    });
+    syncPendingUI();
+    if(Object.keys(p.apps).length && Object.keys(p.apps).length <= 12) primeStates();
   }).catch(function(e){
     $('#noBridge').style.display = 'block';
     toast('gagal: ' + (e && e.message ? e.message : e), 'err');
   });
 }
 
+var statesBusy = false;
+function primeStates(){
+  if(statesBusy) return Promise.resolve();
+  var apps = Object.keys(state.apps).slice(0, 12);
+  if(!apps.length) return Promise.resolve();
+  statesBusy = true;
+  return run('states ' + apps.map(q).join(' '), 60000).then(function(st){
+    var sp = parseKV(st);
+    Object.keys(sp.st).forEach(function(k){
+      state.st[k] = state.st[k] || {};
+      Object.keys(sp.st[k]).forEach(function(f){ state.st[k][f] = sp.st[k][f]; });
+    });
+    renderBan(); renderCekChips(); renderCheck();
+  }).catch(function(){}).then(function(){ statesBusy = false; });
+}
+
 function loadCatalog(){
   state.loadingPkgs = true;
   renderPick();
-  return run('catalog', 60000).then(function(txt){
+  return run('catalog', 90000).then(function(txt){
     var map = {}, order = [];
     String(txt).split('\n').forEach(function(line){
       if(!line || line.charAt(0) === '#') return;
@@ -1303,9 +1466,8 @@ function loadCatalog(){
     state.catReady = Object.keys(map).length > 0;
     state.pkgs = order.sort();
     state.loadingPkgs = false;
-    if(!state.pkgs.length){ /* biarkan kosong */ }
     renderPick();
-    if(Object.keys(state.apps).length) setTimeout(renderBan, 0);
+    if(Object.keys(state.apps).length) setTimeout(function(){ renderBan(); renderCekChips(); }, 0);
   }).catch(function(){
     state.loadingPkgs = false;
     renderPick();
@@ -1314,47 +1476,100 @@ function loadCatalog(){
 
 /* ================= aksi ================= */
 function togglePkg(pkg){
-  var cmd = (LISTED[pkg] ? 'del ' : 'add ') + q(pkg);
-  LISTED[pkg] = !LISTED[pkg];
-  buzz(10);
-  var rows = $$('[data-pkg="' + pkg.replace(/"/g, '\\"') + '"]');
-  rows.forEach(function(r){ r.classList.toggle('on', !!LISTED[pkg]); });
-  run(cmd).then(function(){
-    toast(LISTED[pkg] ? meta(pkg).label + ' masuk daftar ban' : meta(pkg).label + ' dilepas', 'ok');
-    return load();
-  });
+  setDesired(pkg, !desired(pkg));
+  buzz(9);
+  paintPickRow(pkg);
+  syncPendingUI();
+  syncPickAll();
 }
 
-function delPkg(pkg){
-  LISTED[pkg] = false;
+function delPkg(pkg, node){
   run('del ' + q(pkg)).then(function(){
+    delete PEND.add[pkg];
+    delete PEND.del[pkg];
+    LISTED[pkg] = false;
+    delete state.apps[pkg];
     toast(meta(pkg).label + ' dilepas', 'ok');
+    if(node){
+      node.style.transition = 'opacity .22s, transform .22s';
+      node.style.opacity = '0'; node.style.transform = 'translateX(-14px)';
+      setTimeout(function(){ node.remove(); }, 200);
+    }
     return load();
-  }).then(function(){ if(state.check && state.check.pkg === pkg){ state.check = null; renderCheck(); } });
+  }).then(function(){
+    if(state.check && state.check.pkg === pkg){ state.check = null; renderCheck(); }
+  }).catch(function(){ toast('gagal melepas', 'err'); });
 }
 
 function doCheck(pkg){
   toast('membaca sistem…');
-  run('check ' + q(pkg)).then(function(txt){
-    var c = {};
-    String(txt).split('\n').forEach(function(line){
-      var i = line.indexOf('=');
-      if(i < 1 || line.indexOf('check.') !== 0) return;
-      c[line.slice(6, i)] = line.slice(i + 1).trim();
-    });
-    state.check = c;
+  run('check ' + q(pkg), 30000).then(function(txt){
+    state.check = parseCheck(txt);
     renderCekChips(); renderCheck();
-  });
+  }).catch(function(){ toast('gagal membaca', 'err'); });
 }
 
 function setk(k, v){ return run('setk ' + q(k) + ' ' + q(v)); }
 
 function setMode(m){
   $('#segMode').setAttribute('data-mode', m);
-  setk('mode', m).then(function(){ return run('apply', 45000); }).then(function(){
+  setk('mode', m).then(function(){ return run('apply', 60000); }).then(function(){
     toast('mode ' + m.toUpperCase(), 'ok');
     return load();
   });
+}
+
+function commit(){
+  var pl = pendLists();
+  var total = pl.adds.length + pl.dels.length;
+  var fab = $('#fabApply');
+  fab.classList.add('busy');
+  $('#fabTxt').textContent = 'menyimpan';
+  buzz(14);
+  var chain = Promise.resolve();
+  if(pl.adds.length){
+    chain = chain.then(function(){ return run('bulk add ' + pl.adds.map(q).join(' '), 120000); });
+  }
+  if(pl.dels.length){
+    chain = chain.then(function(){ return run('bulk del ' + pl.dels.map(q).join(' '), 120000); });
+  }
+  chain = chain.then(function(){ return run('apply', 180000); });
+
+  return chain.then(function(){
+    PEND = { add:{}, del:{} };
+    fab.classList.remove('busy');
+    fab.classList.add('done');
+    $('#fabTxt').textContent = 'tersimpan';
+    toast(total + ' perubahan diterapkan', 'ok');
+    return load();
+  }).catch(function(e){
+    toast('gagal menyimpan: ' + (e && e.message ? e.message : e), 'err');
+  }).then(function(){
+    setTimeout(function(){
+      fab.classList.remove('busy', 'done');
+      syncPendingUI();
+    }, 1200);
+  });
+}
+
+function applyNow(){
+  var fab = $('#fabApply');
+  fab.classList.add('busy');
+  $('#fabTxt').textContent = 'menerapkan';
+  buzz(14);
+  run('apply', 180000).then(function(txt){
+    var first = String(txt).split('\n')[0] || 'selesai';
+    fab.classList.add('done');
+    $('#fabTxt').textContent = 'kena';
+    toast(first.indexOf('applied=') === 0 ? (first.slice(8) + ' app diterapkan') : first, 'ok');
+    return load();
+  }).catch(function(){ toast('gagal menerapkan', 'err'); })
+    .then(function(){
+      setTimeout(function(){
+        fab.classList.remove('busy', 'done');
+        syncPendingUI();
+      }, 1500);
+    });
 }
 
 /* ================= tab / chrome ================= */
@@ -1364,13 +1579,13 @@ function switchTab(name){
   $$('nav .tab').forEach(function(t){ t.classList.toggle('sel', t.getAttribute('data-tab') === name); });
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if(name === 'cek') renderCekChips();
+  if(name === 'ban' && Object.keys(state.apps).length && Object.keys(state.apps).length <= 12 && !statesBusy) primeStates();
 }
 
 $$('nav .tab').forEach(function(t){
   t.onclick = function(){ buzz(8); switchTab(t.getAttribute('data-tab')); };
 });
 
-$('#hdr').classList.remove('solid');
 window.addEventListener('scroll', function(){
   $('#hdr').classList.toggle('solid', window.scrollY > 8);
 }, { passive: true });
@@ -1393,8 +1608,9 @@ function bindToggle(sel, key, rowSel){
     if(rowSel && $(rowSel)) $(rowSel).classList.toggle('on', on);
     buzz(8);
     setk(key, on ? '1' : '0').then(function(){
-      if(key === 'enabled') return run('apply', 45000);
-    }).then(function(){ toast(key + ' = ' + (on ? 1 : 0), 'ok'); return load(); });
+      if(key === 'enabled') return run('apply', 120000);
+    }).then(function(){ toast(key + ' = ' + (on ? 1 : 0), 'ok'); return load(); })
+      .catch(function(){ toast('gagal menyimpan', 'err'); });
   });
 }
 bindToggle('#tBg', 'bg_appops', '#rowBg');
@@ -1404,11 +1620,15 @@ bindToggle('#tNotif', 'notif_off', '#rowNotif');
 bindToggle('#tBoot', 'fs_boot', '#rowBoot');
 bindToggle('#tEnabled', 'enabled', '#rowEnabled');
 
+var qTimer;
 $('#q').addEventListener('input', function(e){
   state.q = e.target.value;
   $('#searchWrap').classList.toggle('has', !!e.target.value);
-  pickShown = 60;
-  renderPick();
+  clearTimeout(qTimer);
+  qTimer = setTimeout(function(){
+    pickShown = 60;
+    renderPick();
+  }, 150);
 });
 $('#qClear').addEventListener('click', function(){
   var i = $('#q'); i.value = ''; state.q = ''; pickShown = 60;
@@ -1418,8 +1638,8 @@ $('#qClear').addEventListener('click', function(){
 
 $('#btnRecache').addEventListener('click', function(){
   toast('memuat ulang label & ikon…');
-  state.icons = {}; iconSeen = {};
-  run('recache').then(loadCatalog);
+  state.icons = {}; iconSeen = {}; iconQueue = [];
+  run('recache', 30000).then(loadCatalog);
 });
 
 $('#chips').addEventListener('click', function(ev){
@@ -1432,43 +1652,60 @@ $('#chips').addEventListener('click', function(ev){
   renderPick();
 });
 
-/* FAB apply */
-var fabTimer;
-$('#fabApply').addEventListener('click', function(){
-  var fab = this;
-  fab.classList.add('busy');
-  $('#fabTxt').textContent = 'menerapkan';
-  buzz(14);
-  run('apply', 60000).then(function(txt){
-    var first = String(txt).split('\n')[0] || 'selesai';
-    fab.classList.add('done');
-    $('#fabTxt').textContent = 'kena';
-    toast(first.indexOf('applied=') === 0 ? (first.slice(8) + ' app diterapkan') : first, 'ok');
-    return load();
-  }).catch(function(){ toast('gagal menerapkan', 'err'); })
-    .then(function(){
-      clearTimeout(fabTimer);
-      fabTimer = setTimeout(function(){
-        fab.classList.remove('busy', 'done');
-        $('#fabTxt').textContent = 'Terapkan';
-      }, 1500);
-    });
+$('#btnPickAll').addEventListener('click', function(){
+  var list = filteredPkgs();
+  if(!list.length) return;
+  var allOn = list.every(function(p){ return desired(p); });
+  buzz(10);
+  if(!allOn && list.length > 40){
+    ask('Pilih ' + list.length + ' app?',
+      'Semua app pada filter ini akan masuk daftar ban. Setelah disimpan, app tersebut langsung dihentikan.',
+      'Ya, pilih semua', function(){ massSet(list, true); });
+    return;
+  }
+  massSet(list, !allOn);
 });
 
-/* reset + sheet */
-var sheetResolve = null;
+function massSet(list, on){
+  list.forEach(function(p){
+    setDesired(p, on);
+    paintPickRow(p);
+  });
+  syncPendingUI(); syncPickAll();
+}
+
+$('#btnDiscard').addEventListener('click', function(){
+  PEND = { add:{}, del:{} };
+  buzz(6);
+  renderPick();
+  toast('pilihan dibatalkan');
+});
+
+/* FAB */
+$('#fabApply').addEventListener('click', function(){
+  var n = pendCount();
+  buzz(14);
+  if(!n){ applyNow(); return; }
+  var pl = pendLists();
+  ask('Simpan ' + n + ' perubahan?',
+    pl.adds.length + ' app masuk daftar ban, ' + pl.dels.length + ' dilepas. App yang masuk daftar langsung dihentikan setelah disimpan.',
+    'Simpan & terapkan', function(){ commit(); });
+});
+
+/* sheet */
+var sheetCb = null;
 function ask(title, text, okText, cb){
   $('#shTitle').textContent = title;
   $('#shText').textContent = text;
   $('#shOk').textContent = okText || 'Lanjut';
   $('#backdrop').classList.add('show');
   $('#sheet').classList.add('show');
-  sheetResolve = cb;
+  sheetCb = cb;
 }
 function closeSheet(ok){
   $('#backdrop').classList.remove('show');
   $('#sheet').classList.remove('show');
-  var cb = sheetResolve; sheetResolve = null;
+  var cb = sheetCb; sheetCb = null;
   if(ok && cb) cb();
 }
 $('#shCancel').onclick = function(){ closeSheet(false); };
@@ -1479,10 +1716,10 @@ $('#btnReset').addEventListener('click', function(){
   ask('Longgarkan semua app?',
       'Semua aturan dilepas: appops kembali allow, bucket kembali active, tidak ada proses yang dibunuh. Daftar ban tetap ada.',
       'Ya, longgarkan', function(){
-    run('reset', 60000).then(function(){
+    run('reset', 120000).then(function(){
       toast('semua app dilonggarkan', 'ok');
       return load();
-    });
+    }).catch(function(){ toast('gagal', 'err'); });
   });
 });
 
@@ -1493,6 +1730,14 @@ $('#logBtn').addEventListener('click', function(ev){
   if(d) d.open = true;
 });
 
+/* ================= anti-zoom ================= */
+document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', function(e){
+  if(e.touches && e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+document.addEventListener('dblclick', function(e){ e.preventDefault(); }, { passive: false });
+
 /* ================= boot ================= */
 probe().then(function(m){
   state.bridge = m; setKV('#kBridge', m);
@@ -1502,11 +1747,13 @@ probe().then(function(m){
   $('#noBridge').style.display = 'block';
 });
 
+syncPendingUI();
 load();
 loadCatalog();
 
 window.__tbg = { load: load, loadCatalog: loadCatalog, run: run, state: state,
-  resetMode: function(){ mode = null; }, renderPick: renderPick, switchTab: switchTab };
+  resetMode: function(){ mode = null; }, renderPick: renderPick, switchTab: switchTab,
+  pend: function(){ return PEND; }, commit: commit };
 
 })();
 </script>

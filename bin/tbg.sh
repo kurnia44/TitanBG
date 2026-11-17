@@ -135,20 +135,32 @@ pkg_running() {
   ps -A 2>/dev/null | grep -v grep | grep -q "$1"
 }
 
+# ---- opsi config dibaca sekali (hindari spawn awk per app) ----
+OPT_LOADED=""
+opts_load() {
+  OPT_MODE=$(getv mode);      [ -z "$OPT_MODE" ] && OPT_MODE=hard
+  OPT_BG=$(getv bg_appops);   [ -z "$OPT_BG" ] && OPT_BG=1
+  OPT_BUCKET=$(getv bucket);  [ -z "$OPT_BUCKET" ] && OPT_BUCKET=1
+  OPT_NOTIF=$(getv notif_off); [ -z "$OPT_NOTIF" ] && OPT_NOTIF=0
+  OPT_FS=$(getv fs_boot);     [ -z "$OPT_FS" ] && OPT_FS=0
+  OPT_LOADED=1
+}
+
 do_enforce() {
   _p=$1
-  if [ "$(getv bg_appops)" != 0 ]; then
+  [ -n "$OPT_LOADED" ] || opts_load
+  if [ "$OPT_BG" != 0 ]; then
     "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND ignore >/dev/null 2>&1
     "$CM" appops set "$_p" RUN_IN_BACKGROUND ignore >/dev/null 2>&1
   fi
-  if [ "$(getv notif_off)" = 1 ]; then
+  if [ "$OPT_NOTIF" = 1 ]; then
     "$CM" appops set "$_p" POST_NOTIFICATION ignore >/dev/null 2>&1
   fi
-  if [ "$(getv bucket)" != 0 ]; then
+  if [ "$OPT_BUCKET" != 0 ]; then
     "$AM" set-standby-bucket "$_p" restricted >/dev/null 2>&1
     "$CM" deviceidle whitelist -pkg "$_p" >/dev/null 2>&1
   fi
-  if [ "$(getv fs_boot)" = 1 ]; then
+  if [ "$OPT_FS" = 1 ]; then
     "$CM" appops set "$_p" BOOT_COMPLETED ignore >/dev/null 2>&1
   fi
   return 0
@@ -156,9 +168,10 @@ do_enforce() {
 
 do_relax() {
   _p=$1
+  [ -n "$OPT_LOADED" ] || opts_load
   "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1
   "$CM" appops set "$_p" RUN_IN_BACKGROUND allow >/dev/null 2>&1
-  if [ "$(getv notif_off)" = 1 ]; then
+  if [ "$OPT_NOTIF" = 1 ]; then
     "$CM" appops set "$_p" POST_NOTIFICATION allow >/dev/null 2>&1
   fi
   "$AM" set-standby-bucket "$_p" active >/dev/null 2>&1
@@ -167,7 +180,8 @@ do_relax() {
 
 do_kill() {
   _p=$1
-  case "$(getv mode)" in
+  [ -n "$OPT_LOADED" ] || opts_load
+  case "$OPT_MODE" in
     soft) "$AM" kill --user 0 "$_p" >/dev/null 2>&1 ;;
     *)    "$AM" force-stop --user 0 "$_p" >/dev/null 2>&1 ;;
   esac
@@ -227,7 +241,8 @@ cmd_catalog() {
   return 0
 }
 
-# icons <pkg..> = "i.<pkg>=<base64 webp>"  (cache per paket, hemat)
+# icons <pkg..> = "i.<pkg>=<b64>"  (cache per paket, hemat)
+# "x.<pkg>=" = paket sudah dipastikan tidak punya ikon (cache negatif, biar tidak diulang)
 cmd_icons() {
   mkdir -p "$ICONS" 2>/dev/null
   [ $# -eq 0 ] && return 0
@@ -236,20 +251,30 @@ cmd_icons() {
     case "$_p" in ''|*[!A-Za-z0-9._]*) continue ;; esac
     if [ -s "$ICONS/$_p" ]; then
       printf 'i.%s=%s\n' "$_p" "$(cat "$ICONS/$_p" 2>/dev/null)"
+    elif [ -f "$ICONS/$_p.none" ]; then
+      printf 'x.%s=\n' "$_p"
     else
       _want="$_want$_p "
     fi
   done
   [ "$_want" = " " ] && return 0
   _got=$(helper_call icons $_want)
+  _rc=$?
+  # helper gagal (bukan "paket tanpa ikon") -> jangan tulis cache negatif
+  [ "$_rc" -ne 0 ] && return 0
   [ -z "$_got" ] && return 0
   printf '%s\n' "$_got" | WANT="$_want" ICONDIR="$ICONS" awk -F'\t' '
     BEGIN { n = split(ENVIRON["WANT"], w, " "); for (i = 1; i <= n; i++) want[w[i]] = 1 }
-    NF >= 2 && $1 ~ /^[A-Za-z0-9._]+$/ && $2 != "" {
-      f = ENVIRON["ICONDIR"] "/" $1
-      printf "%s", $2 > f
-      close(f)
-      if ($1 in want) printf "i.%s=%s\n", $1, $2
+    NF >= 2 && $1 ~ /^[A-Za-z0-9._]+$/ {
+      if ($2 == "") {
+        f = ENVIRON["ICONDIR"] "/" $1 ".none"
+        printf "" > f; close(f)
+        if ($1 in want) printf "x.%s=\n", $1
+      } else {
+        f = ENVIRON["ICONDIR"] "/" $1
+        printf "%s", $2 > f; close(f)
+        if ($1 in want) printf "i.%s=%s\n", $1, $2
+      }
     }'
   return 0
 }
@@ -301,24 +326,65 @@ cmd_toggle() {
 }
 
 cmd_apply() {
+  opts_load
   _fg=$(fg_pkg)
-  _n=0
+  _n=0; _k=0; _lg=""
   for _p in $(apps_list); do
     if [ "$_p" = "$_fg" ]; then
       do_relax "$_p"
       st_put "$_p" inuse
-      log "RELAX $_p (foreground/apply)"
+      _lg="${_lg}RELAX $_p (foreground/apply)
+"
     else
       do_enforce "$_p"
-      do_kill "$_p"
+      # kill hanya kalau memang ada proses -> hemat exec saat app sudah mati
+      if pkg_running "$_p"; then do_kill "$_p"; _k=$((_k+1)); fi
       st_put "$_p" banned
-      log "BAN $_p (apply)"
+      _lg="${_lg}BAN $_p (apply)
+"
     fi
     _n=$((_n+1))
   done
+  if [ -n "$_lg" ]; then
+    printf '%s [apply]\n%s' "$(date '+%m-%d %H:%M:%S' 2>/dev/null)" "$_lg" >> "$LOG" 2>/dev/null
+  fi
   echo "applied=$_n"
+  echo "killed=$_k"
   echo "fg=$_fg"
-  echo "mode=$(getv mode)"
+  echo "mode=$OPT_MODE"
+}
+
+# bulk add|del <pkg..>  — semua perubahan ditulis sekali, satu round-trip
+cmd_bulk() {
+  _act=$1; [ $# -gt 0 ] && shift
+  case "$_act" in
+    add|del) : ;;
+    *) echo "usage: bulk add|del <pkg..>"; return 1 ;;
+  esac
+  [ $# -eq 0 ] && { echo "bulk.$_act=0"; return 0; }
+  opts_load
+  _n=0
+  if [ "$_act" = add ]; then
+    # pastikan file config diakhiri newline sebelum append
+    [ -s "$CONF" ] && [ -n "$(tail -c1 "$CONF" 2>/dev/null)" ] && printf '\n' >> "$CONF"
+    for _p in "$@"; do
+      case "$_p" in ''|*[!A-Za-z0-9._]*) continue ;; esac
+      grep -q "^app\.$_p=1" "$CONF" 2>/dev/null && continue
+      printf 'app.%s=1\n' "$_p" >> "$CONF" 2>/dev/null
+      _n=$((_n+1))
+    done
+  else
+    for _p in "$@"; do
+      case "$_p" in ''|*[!A-Za-z0-9._]*) continue ;; esac
+      unsetv "app.$_p"
+      st_del "$_p"
+      do_relax "$_p"
+      _n=$((_n+1))
+    done
+  fi
+  log "BULK $_act n=$_n"
+  echo "bulk.$_act=$_n"
+  echo "count=$(apps_count)"
 }
 
 cmd_reset() {
@@ -429,7 +495,12 @@ cmd_check() {
 }
 
 cmd_states() {
-  for _p in $(apps_list); do
+  opts_load
+  if [ $# -gt 0 ]; then _list="$*"; else _list=$(apps_list); fi
+  _i=0
+  for _p in $_list; do
+    _i=$((_i+1))
+    [ "$_i" -gt 40 ] && break
     _b=$("$AM" get-standby-bucket "$_p" 2>/dev/null | tr -dc '0-9')
     _a=$("$CM" appops get "$_p" RUN_ANY_IN_BACKGROUND 2>/dev/null | sed 's/.*: *//' | tr -d ' \r')
     echo "s.$_p.state=$(st_get "$_p" 2>/dev/null || echo idle)"
@@ -464,6 +535,7 @@ cmd_daemon() {
     fi
     _iv=$(getv interval); case "$_iv" in ''|*[!0-9]*) _iv=3 ;; esac
     _gr=$(getv grace);    case "$_gr" in ''|*[!0-9]*) _gr=10 ;; esac
+    OPT_LOADED=""   # muat ulang opsi config tiap putaran
 
     _apps=$(apps_list)
 
@@ -571,6 +643,7 @@ TitanBG CLI
   recache                    hapus cache label & ikon
   probe                      cek helper label/ikon hidup atau tidak
   add <pkg> | del <pkg>      masuk/keluar daftar ban
+  bulk add|del <pkg..>       masuk/keluar daftar ban sekaligus (satu tulisan)
   toggle <pkg>               flip
   apply                      terapkan aturan sekarang
   reset                      longgarkan semua (restore)
@@ -593,11 +666,12 @@ case "$1" in
   probe)     cmd_probe ;;
   add)       cmd_add "$2" ;;
   del)       cmd_del "$2" ;;
+  bulk)      shift; cmd_bulk "$@" ;;
   toggle)    cmd_toggle "$2" ;;
   apply)     cmd_apply ;;
   reset)     cmd_reset ;;
   check)     cmd_check "$2" ;;
-  states)    cmd_states ;;
+  states)    shift; cmd_states "$@" ;;
   screen)    cmd_screen ;;
   log)       cmd_log ;;
   setk)      setv "$2" "$3"; echo "set=$2" ;;
