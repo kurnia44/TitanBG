@@ -50,6 +50,32 @@ CM=$(command -v cmd 2>/dev/null); [ -x "$CM" ] || CM=/system/bin/cmd
 DS=$(command -v dumpsys 2>/dev/null); [ -x "$DS" ] || DS=/system/bin/dumpsys
 PM=$(command -v pm 2>/dev/null); [ -x "$PM" ] || PM=/system/bin/pm
 
+# path skrip ini sendiri (dipakai watchdog buat menghidupkan daemon lagi)
+SELF="$SELFDIR/${0##*/}"
+[ -f "$SELF" ] || SELF="$MODROOT/bin/tbg.sh"
+[ -f "$SELF" ] || SELF="/data/adb/modules/titanbg/bin/tbg.sh"
+
+# SEMUA panggilan am/cmd/dumpsys bisa menggantung (system_server sibuk).
+# Tanpa timeout, satu panggilan nyangkut = daemon mati diam-diam.
+HAS_TO=""
+command -v timeout >/dev/null 2>&1 && HAS_TO=timeout
+run_t() {
+  _rt_s=$1; shift
+  if [ -n "$HAS_TO" ]; then "$HAS_TO" "$_rt_s" "$@" 2>/dev/null; else "$@" 2>/dev/null; fi
+}
+
+# pidof hanya melihat proses utama; sisa pid dimatikan langsung kalau am gagal
+kill_all_pids() {
+  _kl=$1
+  [ -z "$_kl" ] && return 0
+  command -v pidof >/dev/null 2>&1 || return 0
+  for _kp in $(pidof "$_kl" 2>/dev/null); do
+    case "$_kp" in ''|*[!0-9]*) continue ;; esac
+    kill -9 "$_kp" 2>/dev/null
+  done
+  return 0
+}
+
 # ---- helper UI (dex, dipanggil app_process; bukan daemon) ----
 helper_call() {
   [ -f "$HELPER" ] || return 9
@@ -96,19 +122,19 @@ st_put()  { printf '%s\n' "$2" > "$STDIR/$1" 2>/dev/null; }
 st_del()  { rm -f "$STDIR/$1" 2>/dev/null; }
 
 fg_pkg() {
-  _d=$("$DS" activity activities 2>/dev/null | head -80 | grep -m1 -E 'topResumedActivity=|mResumedActivity:')
-  [ -z "$_d" ] && _d=$("$DS" window 2>/dev/null | head -60 | grep -m1 -E 'mCurrentFocus|mFocusedApp')
+  _d=$(run_t 15 "$DS" activity activities | head -80 | grep -m1 -E 'topResumedActivity=|mResumedActivity:')
+  [ -z "$_d" ] && _d=$(run_t 15 "$DS" window | head -60 | grep -m1 -E 'mCurrentFocus|mFocusedApp')
   [ -z "$_d" ] && return 0
   printf '%s' "$_d" | tr ' ' '\n' | grep '/' | head -n 1 | cut -d/ -f1
 }
 
 screen_on() {
-  _w=$("$DS" power 2>/dev/null | grep -m1 -o 'mWakefulness=[A-Za-z]*' | cut -d= -f2)
+  _w=$(run_t 15 "$DS" power | grep -m1 -o 'mWakefulness=[A-Za-z]*' | cut -d= -f2)
   case "$_w" in
     Awake) return 0 ;;
     Asleep|Dozing) return 1 ;;
   esac
-  _w=$("$DS" deviceidle 2>/dev/null | grep -m1 -o 'mScreenOn=[a-z]*' | cut -d= -f2)
+  _w=$(run_t 15 "$DS" deviceidle | grep -m1 -o 'mScreenOn=[a-z]*' | cut -d= -f2)
   case "$_w" in
     true) return 0 ;;
     false) return 1 ;;
@@ -150,18 +176,18 @@ do_enforce() {
   _p=$1
   [ -n "$OPT_LOADED" ] || opts_load
   if [ "$OPT_BG" != 0 ]; then
-    "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND ignore >/dev/null 2>&1
-    "$CM" appops set "$_p" RUN_IN_BACKGROUND ignore >/dev/null 2>&1
+    run_t 15 "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND ignore
+    run_t 15 "$CM" appops set "$_p" RUN_IN_BACKGROUND ignore
   fi
   if [ "$OPT_NOTIF" = 1 ]; then
-    "$CM" appops set "$_p" POST_NOTIFICATION ignore >/dev/null 2>&1
+    run_t 15 "$CM" appops set "$_p" POST_NOTIFICATION ignore
   fi
   if [ "$OPT_BUCKET" != 0 ]; then
-    "$AM" set-standby-bucket "$_p" restricted >/dev/null 2>&1
-    "$CM" deviceidle whitelist -pkg "$_p" >/dev/null 2>&1
+    run_t 15 "$AM" set-standby-bucket "$_p" restricted
+    run_t 15 "$CM" deviceidle whitelist -pkg "$_p"
   fi
   if [ "$OPT_FS" = 1 ]; then
-    "$CM" appops set "$_p" BOOT_COMPLETED ignore >/dev/null 2>&1
+    run_t 15 "$CM" appops set "$_p" BOOT_COMPLETED ignore
   fi
   return 0
 }
@@ -169,22 +195,29 @@ do_enforce() {
 do_relax() {
   _p=$1
   [ -n "$OPT_LOADED" ] || opts_load
-  "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1
-  "$CM" appops set "$_p" RUN_IN_BACKGROUND allow >/dev/null 2>&1
+  run_t 15 "$CM" appops set "$_p" RUN_ANY_IN_BACKGROUND allow
+  run_t 15 "$CM" appops set "$_p" RUN_IN_BACKGROUND allow
   if [ "$OPT_NOTIF" = 1 ]; then
-    "$CM" appops set "$_p" POST_NOTIFICATION allow >/dev/null 2>&1
+    run_t 15 "$CM" appops set "$_p" POST_NOTIFICATION allow
   fi
-  "$AM" set-standby-bucket "$_p" active >/dev/null 2>&1
+  run_t 15 "$AM" set-standby-bucket "$_p" active
   return 0
 }
 
+# kill dengan bukti: force-stop bisa "sukses" tapi prosesnya masih hidup
 do_kill() {
   _p=$1
   [ -n "$OPT_LOADED" ] || opts_load
   case "$OPT_MODE" in
-    soft) "$AM" kill --user 0 "$_p" >/dev/null 2>&1 ;;
-    *)    "$AM" force-stop --user 0 "$_p" >/dev/null 2>&1 ;;
+    soft) run_t 20 "$AM" kill --user 0 "$_p" ;;
+    *)    run_t 20 "$AM" force-stop --user 0 "$_p" ;;
   esac
+  pkg_running "$_p" || return 0
+  sleep 1
+  pkg_running "$_p" || return 0
+  kill_all_pids "$_p"
+  sleep 1
+  pkg_running "$_p" && return 1
   return 0
 }
 
@@ -420,6 +453,17 @@ cmd_dump() {
   else
     echo "rt.daemon=stopped"
   fi
+  if _gpid=$(cat "$CFG/guard.pid" 2>/dev/null) && [ -n "$_gpid" ] && kill -0 "$_gpid" 2>/dev/null; then
+    echo "rt.guard=running:$_gpid"
+  else
+    echo "rt.guard=stopped"
+  fi
+  _hbv=$(cat "$CFG/hb" 2>/dev/null)
+  case "$_hbv" in
+    ''|*[!0-9]*) echo "rt.hb=-" ;;
+    *) echo "rt.hb=$(( $(now_s) - _hbv ))" ;;
+  esac
+  echo "rt.sweep=$(getv sweep)"
   echo "rt.fg=$(cat "$CFG/fg" 2>/dev/null)"
   echo "rt.screen=$(cat "$CFG/screen" 2>/dev/null)"
   echo "rt.root=$(printf '%s' "$MODROOT")"
@@ -527,14 +571,20 @@ cmd_daemon() {
   trap 'rm -f "$PIDF"; log "daemon stopped"; exit 0' TERM INT HUP
   log "daemon start pid=$$"
   _scr_prev=$(cat "$CFG/screen_prev" 2>/dev/null)
+  _last_sweep=0
 
   while :; do
+    # heartbeat: watchdog tahu daemon masih BERJALAN, bukan cuma pid-nya ada
+    now_s > "$CFG/hb" 2>/dev/null
+
     if [ "$(getv enabled)" != 1 ]; then
       sleep 5
       continue
     fi
     _iv=$(getv interval); case "$_iv" in ''|*[!0-9]*) _iv=3 ;; esac
     _gr=$(getv grace);    case "$_gr" in ''|*[!0-9]*) _gr=10 ;; esac
+    _sw=$(getv sweep);    case "$_sw" in ''|*[!0-9]*) _sw=300 ;; esac
+    [ "$_sw" -lt 60 ] && _sw=60
     OPT_LOADED=""   # muat ulang opsi config tiap putaran
 
     _apps=$(apps_list)
@@ -544,6 +594,26 @@ cmd_daemon() {
       printf 'idle\n' > "$CFG/fg" 2>/dev/null
       sleep 10
       continue
+    fi
+
+    # ---- sapu ulang berkala: appops & standby bucket sering di-reset sistem
+    #      (update app, restart container, dsb). Ditaruh SEBELUM filter murah
+    #      supaya tetap jalan walau tidak ada app yang punya proses.
+    _now2=$(now_s)
+    if [ $((_now2 - _last_sweep)) -ge "$_sw" ]; then
+      _swn=0
+      for _p in $_apps; do
+        [ "$(st_get "$_p")" = inuse ] && continue
+        do_enforce "$_p"
+        _swn=$((_swn+1))
+      done
+      _last_sweep=$_now2
+      [ "$_swn" -gt 0 ] && log "sweep re-enforce n=$_swn"
+      # watchdog dijaga dua arah: daemon juga menghidupkan guard kalau mati
+      _gp=$(cat "$CFG/guard.pid" 2>/dev/null)
+      if [ -z "$_gp" ] || ! kill -0 "$_gp" 2>/dev/null; then
+        sh "$SELF" guard >/dev/null 2>&1 &
+      fi
     fi
 
     # ---- filter termurah: pakai pidof (native). Kalau tidak satu pun app
@@ -572,12 +642,8 @@ cmd_daemon() {
       printf 'off\n' > "$CFG/fg" 2>/dev/null
       printf '%s\n' "$_sc" > "$CFG/screen_prev" 2>/dev/null
       for _p in $_apps; do
-        if [ "$(procs_of "$_p")" = 0 ]; then
-          st_put "$_p" banned
-          continue
-        fi
         do_enforce "$_p"
-        do_kill "$_p"
+        pkg_running "$_p" && do_kill "$_p"
         st_put "$_p" banned
       done
       sleep "$_iv"; sleep "$_iv"; sleep "$_iv"; sleep "$_iv"
@@ -591,45 +657,144 @@ cmd_daemon() {
 
     for _p in $_apps; do
       _s=$(st_get "$_p")
+
       if [ "$_p" = "$_fg" ]; then
         if [ "$_s" != inuse ]; then
           do_relax "$_p"
           st_put "$_p" inuse
           log "RELAX $_p (foreground)"
         fi
-      else
-        case "$_s" in
-          banned) : ;;
-          inuse)
-            st_put "$_p" "leaving $(now_s)"
-            log "LEAVE $_p (grace ${_gr}s)"
-            ;;
-        esac
-        _s=$(st_get "$_p")
-        case "$_s" in
-          leaving)
-            _ts=$(cut -d' ' -f2 "$STDIR/$_p" 2>/dev/null)
-            case "$_ts" in ''|*[!0-9]*) _ts=$(now_s) ;; esac
-            _now=$(now_s)
+        continue
+      fi
+
+      [ "$_s" = inuse ] && { st_put "$_p" "leaving $(now_s)"; _s=leaving; log "LEAVE $_p (grace ${_gr}s)"; }
+
+      case "$_s" in
+        leaving)
+          _ts=$(cut -d' ' -f2 "$STDIR/$_p" 2>/dev/null)
+          case "$_ts" in ''|*[!0-9]*) _ts=$(now_s) ;; esac
+          _now=$(now_s)
+          if pkg_running "$_p"; then
             if [ $((_now - _ts)) -ge "$_gr" ]; then
               do_enforce "$_p"
-              do_kill "$_p"
-              st_put "$_p" banned
+              if do_kill "$_p"; then st_put "$_p" banned; else st_put "$_p" "guard $_now"; fi
               log "BAN $_p (idle >${_gr}s)"
             fi
-            ;;
-          '')
-            # belum pernah dicatat (boot / baru ditambah) -> langsung ban
+          else
             do_enforce "$_p"
             st_put "$_p" banned
-            log "BAN $_p (init)"
-            ;;
-        esac
-      fi
+          fi
+          ;;
+        guard)
+          # app hidup lagi padahal sudah diban: beri satu putaran dulu supaya
+          # app yang baru dibuka user sempat kebaca sebagai foreground
+          _ts=$(cut -d' ' -f2 "$STDIR/$_p" 2>/dev/null)
+          case "$_ts" in ''|*[!0-9]*) _ts=$(now_s) ;; esac
+          _now=$(now_s)
+          if pkg_running "$_p"; then
+            if [ $((_now - _ts)) -ge "$_iv" ]; then
+              do_enforce "$_p"
+              if do_kill "$_p"; then st_put "$_p" banned; else st_put "$_p" "guard $_now"; fi
+              log "REBAN $_p (hidup lagi di background)"
+            fi
+          else
+            st_put "$_p" banned
+          fi
+          ;;
+        banned)
+          # dulu: state banned = tidak pernah diperiksa lagi. App yang lolos
+          # (push/alarm/update) hidup terus sampai user apply manual.
+          if pkg_running "$_p"; then
+            st_put "$_p" "guard $(now_s)"
+            log "ALIVE $_p (verifikasi ulang)"
+          fi
+          ;;
+        '')
+          # belum pernah dicatat (boot / baru ditambah) -> langsung ban
+          do_enforce "$_p"
+          st_put "$_p" banned
+          log "BAN $_p (init)"
+          ;;
+        *)
+          if pkg_running "$_p"; then st_put "$_p" "guard $(now_s)"; else do_enforce "$_p"; st_put "$_p" banned; fi
+          ;;
+      esac
     done
 
     sleep "$_iv"
   done
+}
+
+# watchdog: pastikan daemon selalu hidup (pid mati ATAU macet / heartbeat basi)
+cmd_guard() {
+  _gp="$CFG/guard.pid"
+  _old=$(cat "$_gp" 2>/dev/null)
+  if [ -n "$_old" ] && kill -0 "$_old" 2>/dev/null; then
+    echo "guard already running pid=$_old"
+    return 0
+  fi
+  echo $$ > "$_gp"
+  trap 'rm -f "$_gp"' TERM INT HUP
+  log "guard start pid=$$"
+  _n=0
+  while :; do
+    _dp=$(cat "$PIDF" 2>/dev/null)
+    _ok=0
+    if [ -n "$_dp" ] && kill -0 "$_dp" 2>/dev/null; then
+      _hb=$(cat "$CFG/hb" 2>/dev/null)
+      case "$_hb" in ''|*[!0-9]*|0) _hb=0 ;; esac
+      _age=0
+      if [ "$_hb" = 0 ]; then
+        # hb belum ada (daemon baru start / file terhapus): JANGAN bunuh dulu.
+        # Daemon menulis hb tiap putaran; kalau 3 siklus guard tetap kosong, baru restart.
+        _miss=$(cat "$CFG/hb_miss" 2>/dev/null)
+        case "$_miss" in ''|*[!0-9]*) _miss=0 ;; esac
+        _miss=$((_miss+1))
+        printf '%s\n' "$_miss" > "$CFG/hb_miss" 2>/dev/null
+        [ "$_miss" -ge 3 ] && _ok=0 || _ok=1
+      else
+        rm -f "$CFG/hb_miss" 2>/dev/null
+        _age=$(( $(now_s) - _hb ))
+        [ "$_age" -lt 300 ] && _ok=1
+      fi
+      if [ "$_ok" = 0 ]; then
+        log "guard: daemon macet (hb ${_age}s) -> restart"
+        kill -TERM "$_dp" 2>/dev/null
+        sleep 2
+        kill -0 "$_dp" 2>/dev/null && kill -9 "$_dp" 2>/dev/null
+        rm -f "$PIDF" 2>/dev/null
+      fi
+    else
+      log "guard: daemon mati -> restart"
+      rm -f "$PIDF" 2>/dev/null
+    fi
+    if [ "$_ok" = 0 ]; then
+      _n=$((_n+1))
+      printf '%s\n' "$(now_s)" > "$CFG/hb" 2>/dev/null
+      sh "$SELF" daemon >/dev/null 2>&1 &
+    fi
+    sleep 60
+  done
+}
+
+# pastikan daemon+guard hidup, langsung balik (dipakai WebUI/action)
+cmd_ensure() {
+  _st="ok"
+  _gp=$(cat "$CFG/guard.pid" 2>/dev/null)
+  if [ -z "$_gp" ] || ! kill -0 "$_gp" 2>/dev/null; then
+    rm -f "$CFG/guard.pid" 2>/dev/null
+    nohup sh "$SELF" guard >/dev/null 2>&1 &
+    _st="guard_started"
+    sleep 1   # guard menyalakan daemon sendiri; beri waktu sebelum cek ulang
+  fi
+  _dp=$(cat "$PIDF" 2>/dev/null)
+  if [ -z "$_dp" ] || ! kill -0 "$_dp" 2>/dev/null; then
+    rm -f "$PIDF" 2>/dev/null
+    nohup sh "$SELF" daemon >/dev/null 2>&1 &
+    _st="daemon_started"
+  fi
+  echo "ensure=$_st"
+  return 0
 }
 
 usage() {
@@ -653,6 +818,8 @@ TitanBG CLI
   log                        log terakhir
   setk <key> <value>         ubah config
   daemon                     jalankan loop (dipakai service.sh)
+  guard                      watchdog: jaga daemon tetap hidup (auto-restart)
+  ensure                     hidupkan daemon/guard kalau mati (langsung balik)
 EOF
 }
 
@@ -677,6 +844,8 @@ case "$1" in
   setk)      setv "$2" "$3"; echo "set=$2" ;;
   unsetk)    unsetv "$2"; echo "unset=$2" ;;
   daemon)    cmd_daemon ;;
+  guard|watchdog) cmd_guard ;;
+  ensure)    cmd_ensure ;;
   ''|-h|--help|help) usage ;;
   *) echo "unknown command: $1"; usage; exit 1 ;;
 esac

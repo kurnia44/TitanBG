@@ -1034,7 +1034,9 @@ function renderStatus(){
   setKV('#hsDaemon', alive ? 'ON' : 'OFF');
   var d = $('#daemonPill');
   d.className = 'led ' + (alive ? 'on' : 'off');
-  $('#daemonTxt').textContent = alive ? 'daemon ' + String(rt.daemon).split(':')[1] : 'daemon mati';
+  var hb = (rt.hb && rt.hb !== '-') ? ' · ' + rt.hb + 's' : '';
+  $('#daemonTxt').textContent = alive ? 'daemon ' + String(rt.daemon).split(':')[1] + hb : 'daemon mati';
+  if(!alive) healDaemon();
 
   var nb = $('#navBan');
   if(banN > 0){ nb.style.display = 'grid'; nb.textContent = banN > 99 ? '99+' : String(banN); }
@@ -1431,6 +1433,18 @@ function load(){
     $('#noBridge').style.display = 'block';
     toast('gagal: ' + (e && e.message ? e.message : e), 'err');
   });
+}
+
+var healedOnce = false;
+function healDaemon(){
+  if(healedOnce) return;
+  healedOnce = true;
+  run('ensure', 20000).then(function(){
+    return new Promise(function(r){ setTimeout(r, 1500); });
+  }).then(function(){
+    toast('daemon dihidupkan ulang');
+    return load();
+  }).catch(function(){});
 }
 
 var statesBusy = false;

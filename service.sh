@@ -18,6 +18,7 @@ sleep 6
 # pastikan aturan sudah menempel sejak boot sebelum daemon hidup
 sh "$BIN" apply >> "$CFG/titanbg.log" 2>&1
 
-# daemon loop (guard double-start ada di dalam)
-nohup sh "$BIN" daemon >/dev/null 2>&1 &
+# watchdog (guard) yang menghidupkan daemon; kalau daemon mati/macet
+# guard akan menyalakannya lagi dalam <=60 detik (tanpa perlu apply manual)
+nohup sh "$BIN" guard >/dev/null 2>&1 &
 exit 0

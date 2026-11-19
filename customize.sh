@@ -31,8 +31,16 @@ chmod 644 "$MODDIR"/bin/tbgui.dex 2>/dev/null
 chmod 644 "$MODDIR/module.prop" "$MODDIR/defaults.conf" 2>/dev/null
 chmod 644 "$MODDIR"/webroot/* 2>/dev/null
 
-# matikan daemon lama biar versi baru yang jalan
+# matikan daemon + watchdog lama biar versi baru yang jalan
 _old=$(cat "$CFG/daemon.pid" 2>/dev/null)
 [ -n "$_old" ] && kill "$_old" 2>/dev/null
+_gold=$(cat "$CFG/guard.pid" 2>/dev/null)
+[ -n "$_gold" ] && kill "$_gold" 2>/dev/null
+rm -f "$CFG/daemon.pid" "$CFG/guard.pid" "$CFG/hb" 2>/dev/null
+
+# config lama: tambahkan kunci baru tanpa menyentuh pilihan user
+if [ -s "$CFG/config.conf" ]; then
+  grep -q '^sweep=' "$CFG/config.conf" 2>/dev/null || printf 'sweep=300\n' >> "$CFG/config.conf"
+fi
 
 exit 0

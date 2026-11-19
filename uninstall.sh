@@ -8,6 +8,8 @@ BIN="$MODDIR/bin/tbg.sh"
 
 _pid=$(cat "$CFG/daemon.pid" 2>/dev/null)
 [ -n "$_pid" ] && kill "$_pid" 2>/dev/null
+_gpid=$(cat "$CFG/guard.pid" 2>/dev/null)
+[ -n "$_gpid" ] && kill "$_gpid" 2>/dev/null
 
 rm -rf "$CFG" 2>/dev/null
 exit 0

@@ -40,6 +40,7 @@ bucket=1         standby bucket restricted + keluarkan dari idle whitelist
 screenoff=1      sapu bersih semua app terdaftar saat layar mati
 notif_off=0      blokir POST_NOTIFICATION (termasuk saat app dibuka)
 fs_boot=0        blokir BOOT_COMPLETED
+sweep=300        detik antar sapu ulang appops/bucket (min 60) — menambal aturan yang di-reset sistem
 app.<pkg>=1      aplikasi yang diban
 ```
 
@@ -127,6 +128,24 @@ ke 5–8 detik.
 Kalau modul dicabut paksa, jalankan:
 `sh /data/adb/modules/titanbg/bin/tbg.sh reset` sebelum reboot.
 
+## Ketahanan (kenapa ban tidak "basi")
+
+Tiga pengaman supaya pemblokiran tetap jalan berjam-jam tanpa perlu tekan Terapkan lagi:
+
+1. **Watchdog `guard`** — proses terpisah yang memeriksa daemon tiap 60 detik. Kalau PID-nya mati
+   *atau* heartbeat-nya (`/data/adb/titanbg/hb`) basi >300 detik (daemon macet), daemon dibunuh
+   lalu dijalankan ulang. Daemon juga menghidupkan `guard` kalau `guard` yang mati.
+2. **Timeout semua panggilan sistem** — `dumpsys`/`am`/`cmd` dibungkus `timeout`. Dulu satu
+   `dumpsys` yang menggantung = daemon berhenti selamanya tanpa jejak.
+3. **Verifikasi ulang state `banned` + sapu berkala** — app yang hidup lagi di background
+   (push/alarm/update) diban ulang otomatis dalam ±2 tick; dan tiap `sweep` detik appops +
+   standby bucket dipasang ulang untuk menambal yang di-reset sistem. `do_kill` juga memeriksa
+   hasil: kalau `am force-stop` gagal, PID dimatikan langsung (`kill -9`) dan state ditandai
+   `guard` untuk dicoba lagi.
+
+Cek kesehatan kapan saja: `tbg.sh dump` → `rt.daemon`, `rt.guard`, `rt.hb` (umur heartbeat detik).
+Di WebUI, indikator daemon menampilkan umur heartbeat dan menyalakan ulang sendiri kalau mati.
+
 ## Catatan
 
 - Android 11+ wajib. `am set-standby-bucket` dan `cmd appops` butuh root (modul sudah root).
@@ -135,6 +154,22 @@ Kalau modul dicabut paksa, jalankan:
   mematikannya karena proses app dimatikan paksa.
 
 ## Changelog
+
+### v1.2.1
+
+- **Fix: ban berhenti bekerja setelah beberapa jam.** Penyebabnya tiga: (a) daemon bisa mati
+  atau macet tanpa ada yang menyalakan ulang — sekarang ada watchdog `guard` + heartbeat,
+  (b) panggilan `dumpsys`/`am`/`cmd` tanpa timeout bisa menggantung dan membekukan loop — sekarang
+  semuanya dibungkus `timeout`, (c) state `banned` dulu tidak pernah diperiksa lagi sehingga app
+  yang hidup kembali (push/alarm/update) jalan terus sampai user menekan Terapkan — sekarang
+  diverifikasi ulang dan diban otomatis (`REBAN`).
+- `do_kill` memverifikasi hasil: kalau `am force-stop` tidak mematikan proses, PID dimatikan
+  langsung dan state ditandai `guard` untuk dicoba ulang pada tick berikutnya.
+- Sapu ulang berkala (`sweep`, default 300 detik) memasang ulang appops + standby bucket untuk
+  menambal aturan yang di-reset sistem.
+- Perintah baru `ensure` (menyalakan daemon/guard tanpa memblokir) dan `guard`. WebUI menyalakan
+  ulang daemon otomatis saat indikatornya mati, plus menampilkan umur heartbeat.
+- `apply` / `action.sh` tidak lagi menggantung di panel aksi manajer.
 
 ### v1.2.0
 

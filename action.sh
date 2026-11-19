@@ -18,6 +18,9 @@ echo "--- check foreground ---"
 sh "$BIN" check
 echo ""
 echo "--- daemon ---"
-sh "$BIN" daemon
+sh "$BIN" dump | grep -E '^rt\.(daemon|guard|hb)='
+nohup sh "$BIN" guard >/dev/null 2>&1 &
+sleep 1
+sh "$BIN" dump | grep -E '^rt\.(daemon|guard|hb)='
 echo ""
 echo "selesai."
